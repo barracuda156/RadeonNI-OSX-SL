@@ -62,6 +62,8 @@ fetch_exports() {
 
 check() {
     [ -s "$out/undefined.txt" ] || { echo "run build first" >&2; exit 1; }
+    # Relocations kld cannot take (it crashed kextd on a 10.5.8 G5).
+    "$root/scripts/check-kext-relocs.sh" "$out/RadeonNI.kext/Contents/MacOS/RadeonNI"
     fetch_exports
     python3 -I - "$exports" "$out/undefined.txt" <<'PY'
 import re, sys, collections

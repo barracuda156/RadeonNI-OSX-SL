@@ -31,6 +31,8 @@ rm -rf "$stage"
 mkdir -p "$stage"
 "$root/scripts/tiger.sh" ssh 'tar -C ~/osx-gpu/kext/RadeonNI/build -cf - RadeonNI.kext' | tar -C "$stage" -xf -
 [ -f "$stage/RadeonNI.kext/Contents/MacOS/RadeonNI" ] || { echo "no kext came back from the guest" >&2; exit 1; }
+# Relocations the kext linker of Mac OS X crashes on (scripts/check-kext-relocs.sh).
+"$root/scripts/check-kext-relocs.sh" "$stage/RadeonNI.kext/Contents/MacOS/RadeonNI" >&2
 if grep -q '<key>VBIOS</key>' "$stage/RadeonNI.kext/Contents/Info.plist"; then
     echo "the built kext already carries a VBIOS; refusing to package it" >&2
     exit 1

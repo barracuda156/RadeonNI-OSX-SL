@@ -6399,3 +6399,19 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   order with the same log pattern as the report and passes now; all 15 tests identical on x86
   and PowerPC.
 - Not yet seen on the card.
+
+## 2026-10-11 (night): kextd crashed on our kext: a scattered relocation in __const
+
+- Tester's reports `kextd_...154951_Perseus.crash` and `kextcache_...155055_Perseus.crash`:
+  SIGBUS at address 0 in `kld_file_prepare_for_link + 200`, from `kload_load_dgraph`. No
+  `RadeonNI:` lines because the kext was never linked, not because it did not start.
+- Read `kld_patch.c` (IOKitUser-388.53.30): the relocation cache is built per entry in
+  `relocateSection()`, skipping scattered and non-VANILLA entries without filling the record,
+  and `prepareFileForLink()` dereferences `fRInfo` of every entry.
+- `otool -rv` of the two builds: build `649accf` (loaded) 168 scattered entries in `__text`
+  only; build `8258a77` one more, in `(__TEXT,__const)+0x3398`, VANILLA long, value 0x1f420:
+  the `builtin[2]` array of `&outputs[...]` in `rdn_output_detect()`.
+- Fix: assign in code. New `scripts/check-kext-relocs.sh` (fails build `8258a77`, passes
+  `649accf` and the new one), called by `leopard.sh check` and `make-g5-package.sh`.
+- Lesson recorded in `docs/LEOPARD.md`. Other things seen in the tester's registry dump: the Mac
+  is a PowerMac11,2 with an X1900 (Apple's driver) and the Dell 6670 in SLOT-3 at x8, 2.5 GT/s.

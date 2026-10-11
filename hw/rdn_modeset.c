@@ -1247,10 +1247,17 @@ static int output_edid(struct rdn_card *card, const struct rdn_output *out,
 int rdn_output_detect(struct rdn_card *card, uint8_t *edid)
 {
 	const struct rdn_output *cand[2 + 1 + RDN_MAX_BOARD_OUTPUTS];
-	const struct rdn_output *builtin[2] = {
-		&outputs[RDN_OUTPUT_DVI], &outputs[RDN_OUTPUT_DP]
-	};
+	/*
+	 * Assigned, not initialised: a constant array of &outputs[1] and the
+	 * like is emitted as a scattered relocation in __const, which the
+	 * kext linker of Mac OS X (kld_file_prepare_for_link) dereferences
+	 * as NULL and crashes kextd with SIGBUS.
+	 */
+	const struct rdn_output *builtin[2];
 	int n = 0, r = -ENODEV, i, j, k;
+
+	builtin[0] = &outputs[RDN_OUTPUT_DVI];
+	builtin[1] = &outputs[RDN_OUTPUT_DP];
 
 	board_outputs_read(card);
 	card->twin = outputs[RDN_OUTPUT_DP];

@@ -83,6 +83,32 @@ Link B is supported in the transmitter blocks (`rdn_output.linkb`); nothing has
 driven a link B output. `tests/board_outputs.c` checks the parse against the
 7570's VBIOS: it must return the built-in wiring.
 
+## The kext linker crash (2026-10-11, `8258a77`)
+
+The tester's Mac, a PowerMac11,2 on stock xnu-1228.15.4, took the build that
+had loaded at boot the day before and then, after an install and a reboot,
+never started it: `kextd: forked load task exited by signal (10)`, and the
+same crash in `kextcache`. Both reports: `EXC_BAD_ACCESS (SIGBUS)` at 0x0 in
+`kld_file_prepare_for_link + 200` (IOKit.framework 1.5.2), called from
+`__kload_load_modules` and `kload_load_dgraph`.
+
+Cause (IOKitUser `kext.subproj/kld_patch.c`, tag 388): `relocateSection()`
+caches a relocation record per entry of the sections that can hold vtables
+and, for scattered entries and anything but a 32-bit VANILLA, `continue`s
+without filling the record; `prepareFileForLink()` then loops over every
+entry and reads `rec->fRInfo->r_address`. A **scattered relocation in
+`__const` or `__data`** therefore crashes every kext load. Ours came from
+`const struct rdn_output *builtin[2] = { &outputs[0], &outputs[1] }`: a
+constant array of pointers into another array (pointer plus offset to local
+data). The build before it had 168 scattered entries, all in `__text`
+(HA16/LO16), none outside. Fixed by assigning the elements in code, and
+`scripts/check-kext-relocs.sh` (called by `leopard.sh check` and
+`make-g5-package.sh`) refuses any such entry outside `__text`.
+
+The same limit applies to Tiger's `kextload` (the same file in IOKit); rule
+for `hw/` and `kext/`: no static data holding the address of an element other
+than the first, or of a member, of local data.
+
 ## Not done, not known
 
 - **A load on a real 10.5.** `kextload -t -n` there is the first test.
