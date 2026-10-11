@@ -893,8 +893,11 @@ static void var_mark(void *ctx, struct var_mirror *m, const char *from, const ch
 	var_dirty[var_dirty_count++] = m;
 }
 
+static int var_used;	/* the program has named a range */
+
 static void var_range(void *ctx, GLsizei length, const GLvoid *pointer)
 {
+	var_used = 1;
 	var_context(ctx);
 	var_settle(ctx);
 	if (__builtin_expect(var_user_freed, 0))
@@ -1402,6 +1405,17 @@ static int apple_on(void)
 	return on;
 }
 
+/*
+ * Fences are vertex array range fences, always finished (the copies were
+ * made when the memory was flushed), only for a program that has used the
+ * range. With the emulation on for every program, any other one gets
+ * real waits from GL_APPLE_fence.
+ */
+static int var_fake(void)
+{
+	return var_on() && var_used;
+}
+
 /* Fence names are var_fences()'s: one count for the whole program. */
 static void *fence_syncs[4096];
 static unsigned long fence_waits;
@@ -1417,7 +1431,7 @@ static void fence_drop(GLuint fence)
 
 static void fence_set(GLuint fence)
 {
-	if (var_on()) {
+	if (var_fake()) {
 		var_fence_set(fence);
 		return;
 	}
@@ -1436,7 +1450,7 @@ static GLboolean fence_test(GLuint fence)
 {
 	void *sync = fence_syncs[fence & 4095];
 
-	if (var_on() || !sync)
+	if (var_fake() || !sync)
 		return 1;
 	/* GL_SYNC_FLUSH_COMMANDS_BIT, no wait; GL_TIMEOUT_EXPIRED */
 	if (x_client_wait_sync(sync, 0x1, 0) == 0x911B)
@@ -1451,7 +1465,7 @@ static void fence_finish(GLuint fence)
 	GLenum how = 0;
 	unsigned i;
 
-	if (var_on()) {
+	if (var_fake()) {
 		var_fence_finish(fence);
 		return;
 	}
@@ -1472,20 +1486,20 @@ static void fence_delete(GLsizei n, const GLuint *fences)
 {
 	GLsizei i;
 
-	for (i = 0; !var_on() && i < n; i++)
+	for (i = 0; !var_fake() && i < n; i++)
 		fence_drop(fences[i]);
 }
 
 static GLboolean object_test(GLenum object, GLuint name)
 {
-	if (object == 0x8A0B && !var_on())	/* GL_FENCE_APPLE */
+	if (object == 0x8A0B && !var_fake())	/* GL_FENCE_APPLE */
 		return fence_test(name);
 	return 1;
 }
 
 static void object_finish(GLenum object, GLuint name)
 {
-	if (object == 0x8A0B && !var_on())
+	if (object == 0x8A0B && !var_fake())
 		fence_finish(name);
 	else if (var_on() == 2)
 		m_finish();
