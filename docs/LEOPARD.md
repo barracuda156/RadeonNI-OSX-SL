@@ -68,6 +68,17 @@ table describes (`board_outputs_read()`, a port of
 `radeon_get_atom_connector_info_from_object_table()`: UNIPHY and link from the
 encoder object, DDC line from the connector's I2C record, hot-plug pin from its
 HPD record through the GPIO pin table). Every path is logged as `board: path ...`.
+**First run (same day, a retail HD 6670, DVI direct cable):** the table was
+HDMI-A on UNIPHY2 (DDC 0x94, HPD1), dual-link DVI-D on UNIPHY0 link A (DDC 0x92,
+HPD4) and VGA on DAC1 (DDC 0x90, no HPD). The EDID came from the DVI port's
+line 0x92, found through the "twin" candidate, which pairs that line with the
+7570's UNIPHY2: the picture went out of the HDMI port's transmitter and the
+DVI port stayed dark (log: `EDID found`, mode set returned 0, no display). Fixed:
+with a usable table only the built-in outputs the table also has are tried,
+then the table's; the twin is only for a VBIOS with no digital path.
+`tests/board_outputs.c` now rebuilds that case (two DDC lines moved in the
+7570's connector records) and fails on the old order.
+
 Link B is supported in the transmitter blocks (`rdn_output.linkb`); nothing has
 driven a link B output. `tests/board_outputs.c` checks the parse against the
 7570's VBIOS: it must return the built-in wiring.

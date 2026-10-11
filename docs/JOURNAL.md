@@ -6384,3 +6384,18 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
 - Never run on any card but as a test. Not driven: link B, HDMI audio, hot-plug on a table
   output (`rdn_dp_hpd_init` is called for it; the kext's polling was written for the built-in
   two). The Tiger kext gets the change too (hw/ is shared).
+
+## 2026-10-11 (later): the 6670's EDID answered, no picture: wrong transmitter
+
+- Log from the 10.5 package `649accf`: table = HDMI-A UNIPHY2 DDC 0x94 HPD1; DVI-D UNIPHY0 A
+  DDC 0x92 HPD4; VGA DAC1 DDC 0x90. `DVI on the DisplayPort lines: EDID found (UNIPHY2, DDC
+  0x92)`, mode set 1280x1024 returned 0, monitor on DVI stayed dark. Hot-plug polling worked
+  (HPD4 is the DVI's pin). Cause: the "twin" candidate (the 7570's DisplayPort lines as TMDS)
+  was tried before the table's own and paired the DVI port's DDC line with UNIPHY2, which
+  drives the HDMI port on this board.
+- Fix: `rdn_output_detect()` keeps the built-in outputs only when the table also has them
+  (when it has any digital path), then the table's; the twin only without a usable table.
+  `tests/board_outputs.c` scenario 2 (7570 VBIOS with two DDC lines moved) fails on the old
+  order with the same log pattern as the report and passes now; all 15 tests identical on x86
+  and PowerPC.
+- Not yet seen on the card.

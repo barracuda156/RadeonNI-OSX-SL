@@ -64,12 +64,14 @@ static const struct rdn_output outputs[] = {
 		ENCODER_OBJECT_ID_INTERNAL_UNIPHY, 0, 0,
 		0,	/* RADEON_HPD_1 */
 		0x93,
+		false,	/* link A */
 	},
 	{
 		"DisplayPort", true, CONNECTOR_OBJECT_ID_DISPLAYPORT,
 		ENCODER_OBJECT_ID_INTERNAL_UNIPHY2, 2, 4,
 		3,	/* RADEON_HPD_4 */
 		0x92,
+		false,	/* link A */
 	},
 };
 
@@ -1231,15 +1233,24 @@ static int output_edid(struct rdn_card *card, const struct rdn_output *out,
 }
 
 /*
- * In this order: DVI-I and DisplayPort as the 7570 has them; the
- * DisplayPort connector's lines as TMDS (a board that wires a DVI-D port
- * there: the BIOS answers a DVI sink type and AUX does not); then what the
- * VBIOS's object table says this board has, minus what was tried.
+ * What is tried, in this order:
+ *  - the two outputs built in for the 7570 board (DVI-I, DisplayPort), but
+ *    only those the VBIOS's object table also has, when it has any digital
+ *    path: another board's lines are wired differently, and borrowing a
+ *    DDC line of one connector with the transmitter of another sends the
+ *    picture out of the wrong port (a retail HD 6670, 2026-10-11: the
+ *    DVI-D port's DDC answered, UNIPHY2 drove its HDMI port);
+ *  - the outputs the table gives, minus what is already in the list;
+ *  - only with no usable table: the DisplayPort lines as TMDS (a DVI-D
+ *    port there; the BIOS answers a DVI sink type and AUX does not).
  */
 int rdn_output_detect(struct rdn_card *card, uint8_t *edid)
 {
 	const struct rdn_output *cand[2 + 1 + RDN_MAX_BOARD_OUTPUTS];
-	int n = 0, r = -ENODEV, i, j;
+	const struct rdn_output *builtin[2] = {
+		&outputs[RDN_OUTPUT_DVI], &outputs[RDN_OUTPUT_DP]
+	};
+	int n = 0, r = -ENODEV, i, j, k;
 
 	board_outputs_read(card);
 	card->twin = outputs[RDN_OUTPUT_DP];
@@ -1247,9 +1258,15 @@ int rdn_output_detect(struct rdn_card *card, uint8_t *edid)
 	card->twin.connector_id = CONNECTOR_OBJECT_ID_DUAL_LINK_DVI_D;
 	card->twin.name = "DVI on the DisplayPort lines";
 
-	cand[n++] = &outputs[RDN_OUTPUT_DVI];
-	cand[n++] = &outputs[RDN_OUTPUT_DP];
-	cand[n++] = &card->twin;
+	for (k = 0; k < 2; k++) {
+		bool on_board = card->num_board == 0;
+
+		for (i = 0; i < card->num_board; i++)
+			if (output_same_wiring(builtin[k], &card->board[i]))
+				on_board = true;
+		if (on_board)
+			cand[n++] = builtin[k];
+	}
 	for (i = 0; i < card->num_board; i++) {
 		bool seen = false;
 
@@ -1259,6 +1276,8 @@ int rdn_output_detect(struct rdn_card *card, uint8_t *edid)
 		if (!seen)
 			cand[n++] = &card->board[i];
 	}
+	if (card->num_board == 0)
+		cand[n++] = &card->twin;
 
 	for (i = 0; i < n; i++) {
 		r = output_edid(card, cand[i], edid);
