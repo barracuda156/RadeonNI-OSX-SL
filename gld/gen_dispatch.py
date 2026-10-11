@@ -175,7 +175,8 @@ CLIENT_STATE = {
 #
 # For the programs named in RDN_VAR_LIST, one name a line (a "-" before
 # the name: not even if built in), or with RDN_VAR=1 in the environment
-# (0: not even if named). "Call of Duty 2" is built in (2026-10-11). A "+" before the
+# (0: not even if named). On for every program but the window server since
+# 2026-10-11; "-name" or RDN_VAR=0 turns it off. A "+" before the
 # name, or RDN_VAR=2: without the copies where that can be (VAR_USERS). Never asked for by
 # name by Call of Duty 2: it takes the range for granted and looks for
 # GL_APPLE_vertex_array_object, GL_APPLE_fence and GL_APPLE_element_array
@@ -200,9 +201,8 @@ static int var_on(void)
 	if ((env = getenv("RDN_VAR")) != NULL)
 		on = atoi(env) < 0 ? 0 : atoi(env) > 2 ? 2 : atoi(env);
 	else {
-		/* Built in: Call of Duty 2 has no other way of drawing. */
-		if (!strcmp(name, "Call of Duty 2"))
-			on = 1;
+		/* On for every program (2026-10-11); "-name" in the list or RDN_VAR=0 turns it off. */
+		on = 1;
 		if ((f = fopen(RDN_VAR_LIST, "r")) != NULL) {
 			while (fgets(line, sizeof(line), f)) {
 				line[strcspn(line, "\\r\\n")] = 0;
