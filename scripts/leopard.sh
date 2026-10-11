@@ -115,8 +115,31 @@ package() {
     cp "$root/g5/LEOPARD-README.txt" "$stage/README.txt"
     zip=$root/build/$(basename "$stage").zip
     rm -f "$zip"
-    (cd "$out/pkg" && zip -qr "$zip" "$(basename "$stage")")
+    # The host may have no zip; Python writes it, with the files' modes.
+    python3 -I - "$out/pkg" "$(basename "$stage")" "$zip" <<'PY'
+import os, sys, zipfile
+
+base, name, out = sys.argv[1:]
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    for folder, dirs, files in os.walk(os.path.join(base, name)):
+        dirs.sort()
+        for entry in sorted(dirs) + sorted(files):
+            path = os.path.join(folder, entry)
+            arc = os.path.relpath(path, base)
+            if os.path.isdir(path):
+                info = zipfile.ZipInfo.from_file(path, arc + "/")
+                info.external_attr = (0o40755 << 16) | 0x10
+                z.writestr(info, "")
+                continue
+            info = zipfile.ZipInfo.from_file(path, arc)
+            mode = 0o755 if os.access(path, os.X_OK) else 0o644
+            info.external_attr = (0o100000 | mode) << 16
+            info.compress_type = zipfile.ZIP_DEFLATED
+            with open(path, "rb") as f:
+                z.writestr(info, f.read())
+PY
     echo "$zip"
+    python3 -I -m zipfile -l "$zip" | sed 's/^/  /'
 }
 
 case "${1:-}" in
