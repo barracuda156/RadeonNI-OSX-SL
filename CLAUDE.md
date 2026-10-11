@@ -290,9 +290,11 @@ been planned in detail.
   that extension; without it Mesa copied up to 20 MB of vertices per draw
   and ran out of video memory in the first map. The bundle implements it
   with buffer objects that mirror the program's memory
-  (`gld/gen_dispatch.py`, `VAR_HELP`), for the programs named in
-  `/Library/Application Support/RadeonNI/vertexrange` (on the G5: Call of
-  Duty 2) or with `RDN_VAR=1`. The user played the first map with it, 55
+  (`gld/gen_dispatch.py`, `VAR_HELP`), for every program but the window
+  server since 2026-10-11 (user's decision; `RDN_VAR=0` or a `-name` line in
+  `/Library/Application Support/RadeonNI/vertexrange` turns it off for one;
+  UT2004 +15 to 20 %, Quake 3 and 4 unchanged; its fences are fake only
+  once the program has named a range). The user played the first map with it, 55
   to 90 frames a second at 1920x1080, and confirmed the last flicker gone.
   The game does not flush what it rewrites when it draws through a vertex
   array object it already has, so before such a draw the bundle compares

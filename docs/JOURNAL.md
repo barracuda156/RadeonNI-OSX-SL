@@ -6212,3 +6212,20 @@ of Quake 4 with glthread off: "slow as shit"; the A/B was stopped after one pair
 - Not built or run: the worktree has no `third_party/`. Needs
   `scripts/build-mesa.sh darwin ...RadeonNIGLDriver.dylib` and an install on
   the G5, then the demo's first map with the list file moved away.
+
+## 2026-10-11: vertex array range emulation on for every program (bundle 4fab96a5)
+
+- `var_on()` is 1 for every program but the window server; `RDN_VAR=0`, or a `-name`
+  line in `/Library/Application Support/RadeonNI/vertexrange`, turns it off. The user's
+  decision after UT2004's A/B (below): no downside seen.
+- UT2004, no switches (default now): 8 samples, mean 52.9 (harmonic 48.7), 2,646 buffers
+  created; against 40 to 46 with `RDN_VAR=0` the same evening.
+- Quake 3 `four`, 2 pairs: 146.3, 146.4 off; 145.8, 145.7 on (noise). Quake 4
+  `playNetTimeDemo`: 45.85 off, 45.81 on. Neutral.
+- Found by `appletest`: with it on, GL_APPLE_fence was the vertex range's "always
+  finished" fence, not a GPU wait. Fixed: fences are fake only once the program has called
+  `glVertexArrayRangeAPPLE` (`var_used`); otherwise Mesa sync objects as before. `appletest`
+  passes, `vartest` as before. Not run: Call of Duty 2 (uses both; it calls the range first, so
+  its fences are as before).
+- Installed on the G5; the bundle before is `~/RadeonNIGLDriver.before-vardefault` (8bfd6832,
+  directory form). Not seen by the user on screen with it in other games.
