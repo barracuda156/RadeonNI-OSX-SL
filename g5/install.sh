@@ -2,7 +2,7 @@
 # Install RadeonNI.kext on a PowerPC Mac running Mac OS X 10.4, so that it
 # loads at boot like any other driver.
 #
-#   sudo ./install.sh [--accel] [--hwcursor] [vbios.rom]
+#   sudo ./install.sh [--accel] [--hwcursor] [--check | --try] [vbios.rom]
 #
 # Run it from the unpacked package directory, on the Mac itself. The driver
 # reads the VBIOS from the card's own ROM. A VBIOS image of the card, given
@@ -17,6 +17,14 @@
 # from this package into /System/Library/Extensions; they do nothing
 # without the accelerator. --hwcursor (with --accel) uses the card's
 # hardware cursor. Run the script again without options to go back.
+#
+# --check only asks the system whether it would load the kext (kextload -t
+# -n: dependencies and undefined symbols) and writes nothing. --try loads
+# it from /tmp without installing it: a reboot undoes it. Both are for a
+# first run on a Mac the driver has not been seen on.
+#
+# Mac OS X 10.5: only with a package that has the file LEOPARD (see
+# scripts/leopard.sh), without --accel. That build was never run there.
 #
 # Nothing is written to the card. To undo: sudo ./uninstall.sh
 #
@@ -34,12 +42,15 @@ fail() { echo "install.sh: $*" >&2; exit 1; }
 
 accel=0
 hwcursor=0
+mode=install
 vbios=
 [ ! -f "$here/vbios.rom" ] || vbios=$here/vbios.rom
 for arg in "$@"; do
     case "$arg" in
     --accel) accel=1 ;;
     --hwcursor) hwcursor=1 ;;
+    --check) mode=check ;;
+    --try) mode=try ;;
     -*) fail "unknown option $arg" ;;
     *) vbios=$arg
        [ -f "$vbios" ] || fail "VBIOS image not found: $vbios" ;;
@@ -52,6 +63,13 @@ done
 
 case "$(sw_vers -productVersion)" in
 10.4*) ;;
+10.5*)
+    [ -f "$here/LEOPARD" ] ||
+        fail "this package is built for Mac OS X 10.4; this is $(sw_vers -productVersion). The 10.5 package has a file LEOPARD."
+    [ "$accel" = 0 ] ||
+        fail "--accel is for Mac OS X 10.4 only; on 10.5 the driver is a plain framebuffer"
+    echo "Mac OS X $(sw_vers -productVersion): EXPERIMENTAL framebuffer-only build, never run on 10.5 yet."
+    echo "Start with: sudo sh ./install.sh --check   (writes nothing)" ;;
 *) fail "this kext is built for Mac OS X 10.4; this is $(sw_vers -productVersion)" ;;
 esac
 [ "$(uname -p)" = powerpc ] || fail "this kext is PowerPC only"
@@ -170,6 +188,18 @@ chmod -R go-w "$tmp/$KEXT"
 
 # Check that the system accepts it before touching the Extensions folder.
 kextload -t -n "$tmp/$KEXT" || fail "the system rejects the kext; nothing was installed"
+if [ "$mode" = check ]; then
+    rm -rf "$tmp"
+    echo "The system accepts the kext (kextload -t -n). Nothing was installed."
+    exit 0
+fi
+if [ "$mode" = try ]; then
+    kextload -v "$tmp/$KEXT" || fail "the kext did not load (copy kept in $tmp)"
+    echo "Loaded from $tmp; not installed. A restart undoes it."
+    echo "Messages: grep RadeonNI /var/log/system.log"
+    echo "The window server looks for framebuffers when it starts: log out and in."
+    exit 0
+fi
 
 rm -rf "$SLE/$KEXT"
 cp -R "$tmp/$KEXT" "$SLE/"

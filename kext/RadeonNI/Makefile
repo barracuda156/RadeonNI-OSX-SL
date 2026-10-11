@@ -6,7 +6,14 @@
 KEXT     = RadeonNI
 KROOT    = /System/Library/Frameworks/Kernel.framework
 HW       = ../../hw
+# make LEOPARD=1: the same sources, plus leopard.s, for Mac OS X 10.5
+# (see scripts/leopard.sh). Built apart, so that the Tiger kext is not touched.
+LEOPARD  = 0
+ifeq ($(LEOPARD),1)
+BUILD    = build-leopard
+else
 BUILD    = build
+endif
 BUNDLE   = $(BUILD)/$(KEXT).kext
 
 CPPFLAGS = -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
@@ -21,8 +28,15 @@ HW_SRCS  = rdn_gart.c rdn_mc.c rdn_watermark.c rdn_pm.c rdn_cursor.c rdn_mem.c r
 	rdn_pattern.c atom/atom.c
 HW_OBJS  = $(addprefix $(BUILD)/hw/,$(HW_SRCS:.c=.o))
 OBJS     = $(BUILD)/RadeonNI.o $(BUILD)/RadeonNIAccel.o $(BUILD)/RadeonNISurface.o $(BUILD)/kmod_info.o $(HW_OBJS)
+ifeq ($(LEOPARD),1)
+OBJS    += $(BUILD)/leopard.o
+endif
 
 all: $(BUNDLE)
+
+$(BUILD)/leopard.o: leopard.s
+	@mkdir -p $(dir $@)
+	gcc -arch ppc -c -o $@ $<
 
 $(BUILD)/%.o: %.cpp RadeonNI.h RadeonNIAccel.h RadeonNISurface.h $(wildcard $(HW)/*.h $(HW)/atom/*.h)
 	@mkdir -p $(dir $@)

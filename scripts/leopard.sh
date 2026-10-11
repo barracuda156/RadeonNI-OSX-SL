@@ -1,0 +1,127 @@
+#!/bin/bash
+# The framebuffer kext for Mac OS X 10.5 (Leopard, PowerPC). EXPERIMENTAL:
+# nothing here has run on a 10.5 Mac.
+#
+#   scripts/leopard.sh build     build kext/RadeonNI with LEOPARD=1 in the
+#                                Tiger guest (its own directory there) and
+#                                bring the bundle to build/leopard/
+#   scripts/leopard.sh check     compare the kext's undefined symbols with
+#                                what Leopard's kernel exports (xnu-1228.15.4,
+#                                fetched into third_party/leopard-exports)
+#   scripts/leopard.sh package   build/RadeonNI-10.5-<date>-<commit>.zip:
+#                                kext, install.sh, LICENSE, README, the file
+#                                LEOPARD that makes install.sh accept 10.5
+#
+# Why a separate build: Tiger's headers leave two vtable slots reserved that
+# Leopard made real methods (IOService::systemWillShutdown, IOUserClient::
+# externalMethod); kext/RadeonNI/leopard.s defines the old names. The Tiger
+# kext does not get that file. What was compared and found equal (class
+# layouts of IOFramebuffer, IOService, IOUserClient, IOPCIDevice, ...) is in
+# docs/LEOPARD.md.
+#
+# No acceleration: Apple's OpenGL driver interface and the window server
+# differ on 10.5; the package has no GL bundle, 2D plug-in or microcode.
+#
+# Copyright (c) 2026 kouta-kun and Claude
+# SPDX-License-Identifier: MIT
+
+set -euo pipefail
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+out=$root/build/leopard
+exports=$root/third_party/leopard-exports
+tag=xnu-1228.15.4
+gdir=osx-gpu-leopard
+
+gssh() { "$root/scripts/tiger.sh" ssh "$@"; }
+
+build() {
+    tar -C "$root" -cf - hw kext | gssh "rm -rf ~/$gdir && mkdir -p ~/$gdir && tar -C ~/$gdir -xf -"
+    gssh "cd ~/$gdir/kext/RadeonNI && make LEOPARD=1 2>&1 | tail -5 && file build-leopard/RadeonNI.kext/Contents/MacOS/RadeonNI"
+    rm -rf "$out"
+    mkdir -p "$out"
+    gssh "tar -C ~/$gdir/kext/RadeonNI/build-leopard -cf - RadeonNI.kext" | tar -C "$out" --warning=no-timestamp -xf -
+    [ -f "$out/RadeonNI.kext/Contents/MacOS/RadeonNI" ] || { echo "no kext came back from the guest" >&2; exit 1; }
+    if grep -q '<key>VBIOS</key>' "$out/RadeonNI.kext/Contents/Info.plist"; then
+        echo "the built kext already carries a VBIOS; refusing" >&2
+        exit 1
+    fi
+    gssh "nm -u ~/$gdir/kext/RadeonNI/build-leopard/RadeonNI.kext/Contents/MacOS/RadeonNI" > "$out/undefined.txt"
+    echo "built: $out/RadeonNI.kext ($(wc -l < "$out/undefined.txt" | tr -d ' ') undefined symbols)"
+}
+
+fetch_exports() {
+    mkdir -p "$exports"
+    local base=https://raw.githubusercontent.com/apple-oss-distributions/xnu/$tag/config
+    for n in System6.0 System6.0.ppc IOKit IOKit.ppc Libkern Libkern.ppc BSDKernel BSDKernel.ppc \
+             Mach Mach.ppc Unsupported Unsupported.ppc; do
+        [ -s "$exports/$n.exports" ] ||
+            curl -sfL "$base/$n.exports" -o "$exports/$n.exports" || { echo "cannot fetch $n.exports" >&2; exit 1; }
+    done
+}
+
+check() {
+    [ -s "$out/undefined.txt" ] || { echo "run build first" >&2; exit 1; }
+    fetch_exports
+    python3 -I - "$exports" "$out/undefined.txt" <<'PY'
+import re, sys, collections
+d, und = sys.argv[1], sys.argv[2]
+have = set()
+for n in ('System6.0', 'System6.0.ppc', 'IOKit', 'IOKit.ppc', 'Libkern', 'Libkern.ppc',
+          'BSDKernel', 'BSDKernel.ppc', 'Mach', 'Mach.ppc', 'Unsupported', 'Unsupported.ppc'):
+    for l in open('%s/%s.exports' % (d, n), errors='replace'):
+        l = l.strip()
+        if l and not l.startswith('#'):
+            have.add(l.split(':')[0])      # "name:target" is an alias
+syms = [l.strip() for l in open(und) if l.strip()]
+FAMILY = ('IOPCI', 'IOAGP', 'IOFramebuffer', 'IOGraphics', 'IODisplay', 'IOFB', 'IOAccelerator')
+
+
+def cls(s):
+    m = re.match(r'__Z(?:T[VIS])?N?K?(\d+)', s)   # also vtable and typeinfo names
+    return s[len(m.group(0)):][:int(m.group(1))] if m else None
+
+
+fam, unknown = collections.Counter(), []
+for s in syms:
+    if s in have:
+        continue
+    c = cls(s)
+    if c and c.startswith(FAMILY):
+        fam[c] += 1
+    else:
+        unknown.append(s)
+print('undefined: %d; in the kernel lists: %d; from the IOPCIFamily and '
+      'IOGraphicsFamily kexts (not checkable here): %d; unknown: %d'
+      % (len(syms), len([s for s in syms if s in have]), sum(fam.values()), len(unknown)))
+for s in unknown:
+    print('  UNKNOWN', s)
+sys.exit(1 if unknown else 0)
+PY
+}
+
+package() {
+    [ -d "$out/RadeonNI.kext" ] || { echo "run build first" >&2; exit 1; }
+    check
+    local rev stage zip
+    rev=$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo unknown)
+    stage=$out/pkg/RadeonNI-10.5-$(date +%Y%m%d)-$(git -C "$root" rev-parse --short HEAD)
+    rm -rf "$out/pkg"
+    mkdir -p "$stage"
+    cp -R "$out/RadeonNI.kext" "$stage/"
+    cp "$root/g5/install.sh" "$root/g5/uninstall.sh" "$root/LICENSE" "$stage/"
+    touch "$stage/LEOPARD"
+    echo "$rev (10.5 framebuffer-only build)" > "$stage/VERSION"
+    cp "$root/g5/LEOPARD-README.txt" "$stage/README.txt"
+    zip=$root/build/$(basename "$stage").zip
+    rm -f "$zip"
+    (cd "$out/pkg" && zip -qr "$zip" "$(basename "$stage")")
+    echo "$zip"
+}
+
+case "${1:-}" in
+build) build ;;
+check) check ;;
+package) package ;;
+*) sed -n 2,26p "$0"; exit 1 ;;
+esac

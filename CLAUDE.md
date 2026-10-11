@@ -61,6 +61,7 @@ machine: Power Mac G5 Late 2005. Development runs Tiger under
 | Quartz Extreme and Core Image audit, A6 | `docs/2D-ACCELERATION.md` (`docs/CORE-IMAGE-TODO.md` is an outdated plan) |
 | Open Firmware hook and install (also from Linux) | `docs/OPEN-FIRMWARE.md` (`docs/OPEN-FIRMWARE-PLAN.md`: first outline) |
 | Mode list, display sleep, hot-plug | `docs/HOTPLUG.md` |
+| Mac OS X 10.5 framebuffer kext (paper-checked, never run) | `docs/LEOPARD.md` |
 | Sleep and display power (read before touching) | `docs/POWER-MANAGEMENT.md` |
 | Video memory, GART, no eviction | `docs/MEMORY-EVICTION.md` |
 | Piglit results | `docs/PIGLIT.md` |

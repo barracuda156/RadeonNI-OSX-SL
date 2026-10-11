@@ -6345,3 +6345,25 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   2811 frames in 61176 ms, 45.95 fps; earlier 45.8 (journal 2026-10-11, "vertex array range")
   and 47.3 (the user, dual 2.5 GHz). No crash report. Not done: a look at its picture, and
   Quake 3, Doom 3, UT2004, Call of Duty 2, none rerun since patch 0011.
+
+## 2026-10-11: Mac OS X 10.5 framebuffer kext (paper-checked, never run)
+
+- Asked for by the user after a 6670 owner's installer failed on "10.5.9" (install.sh refuses
+  non-10.4; 10.5.8 was the last Leopard release, the version string wants checking).
+- Compared Tiger's and Leopard's public sources (xnu 792/1228, IOGraphics 179 to 233.3,
+  IOPCIFamily 79 to 162.3): class layouts the kext uses are the same; details in
+  `docs/LEOPARD.md`. First comparison by textual declaration order gave false "moved" results
+  (an override takes no vtable slot, a `...Used` reserved marker declares nothing); redone by
+  slot index.
+- Found: the kext imports two symbols Leopard no longer has, `IOService::_RESERVEDIOService4`
+  and `IOUserClient::_RESERVEDIOUserClient0` (now `systemWillShutdown`, `externalMethod`).
+  `kext/RadeonNI/leopard.s` (only with `make LEOPARD=1`) defines them as jumps. Result of
+  `scripts/leopard.sh check`: 426 of 426 kernel symbols resolve against xnu-1228.15.4's
+  lists; 160 family symbols not checkable beyond names and reserved slots.
+- `g5/install.sh`: 10.5 accepted only with the `LEOPARD` marker and no `--accel`; new
+  `--check` and `--try`. `scripts/leopard.sh package` makes the zip.
+- A mistake: `scripts/build-mesa.sh` from a second worktree applied the committed patch 0013
+  to the shared `third_party` Mesa tree, which had the working copy's newer revision; it
+  changed `glthread_varray.c` and left `.rej` files. Restored from patch's own `.orig`
+  (identical), rejects removed. The patch series also does not replay from a pristine tree
+  (0008 reports "previously applied" on `glthread.h`).
