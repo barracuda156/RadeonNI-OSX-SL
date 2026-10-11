@@ -6333,3 +6333,15 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   installed), a long game of Pirates!, fights.
 - Mistakes on the way: keys sent after the game quit went to the Finder once (renamed the data
   folder, restored); a benchmark script clicked at the same spot twice and chose Quit once.
+
+## 2026-10-11: patch 0013 final (client attrib pop, VAO delete); Quake 4 regression
+
+- `glPopClientAttrib` copied back a VAO resolved under the program state of the push, and
+  `glDeleteVertexArrays` fell back to the default VAO without re-resolving it; both now call
+  `resolve_vao()`. Found by reading; no test exercises them (no glthread unit tests exist).
+  Bundle 04241306 (the G5's now; before: d2ffdd89).
+- Regression run after patches 0011 to 0013, by the user's request only Quake 4:
+  `q4netdemo.sh` (playNetTimeDemo id_demo001, 1920x1080, glthread on by the engine table):
+  2811 frames in 61176 ms, 45.95 fps; earlier 45.8 (journal 2026-10-11, "vertex array range")
+  and 47.3 (the user, dual 2.5 GHz). No crash report. Not done: a look at its picture, and
+  Quake 3, Doom 3, UT2004, Call of Duty 2, none rerun since patch 0011.

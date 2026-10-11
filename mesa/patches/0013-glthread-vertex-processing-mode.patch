@@ -133,7 +133,20 @@
  }
  
  void
-@@ -260,6 +270,204 @@
+@@ -150,8 +160,11 @@
+        * for that object reverts to zero and the default vertex array
+        * becomes current."
+        */
+-      if (glthread->CurrentVAO == vao)
++      if (glthread->CurrentVAO == vao) {
+          glthread->CurrentVAO = &glthread->DefaultVAO;
++         if (glthread->DefaultVAO.ResolvedGen != glthread->ProgramGen)
++            resolve_vao(ctx, &glthread->DefaultVAO);
++      }
+ 
+       if (glthread->LastLookedUpVAO == vao)
+          glthread->LastLookedUpVAO = NULL;
+@@ -260,6 +273,204 @@
        assert(attrib_count >= 0);
  }
  
@@ -338,7 +351,7 @@
  void
  _mesa_glthread_ClientState(struct gl_context *ctx, GLuint *vaobj,
                             gl_vert_attrib attrib, bool enable)
-@@ -282,40 +490,11 @@
+@@ -282,40 +493,11 @@
  
     if (enable && !(vao->UserEnabled & attrib_bit)) {
        vao->UserEnabled |= attrib_bit;
@@ -381,6 +394,16 @@
  }
  
  static void
+@@ -665,6 +847,9 @@
+    assert(top->VAO.Name == vao->Name);
+    *vao = top->VAO; /* Copy all fields. */
+    glthread->CurrentVAO = vao;
++   /* The copy was resolved under the vertex processing mode and program of
++    * the push; that is not what is current now. */
++   resolve_vao(ctx, vao);
+ }
+ 
+ void
 --- a/src/mesa/glapi/glapi/gen/gl_API.xml
 +++ b/src/mesa/glapi/glapi/gen/gl_API.xml
 @@ -5562,7 +5562,7 @@
