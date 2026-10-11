@@ -38,6 +38,8 @@ static const struct {
    { RDN_ENGINE_IDTECH4, "q4base", NULL },
    { RDN_ENGINE_IDTECH4, "base/pak000.pk4", NULL },  /* Doom 3 */
    { RDN_ENGINE_IDTECH4, "demo/demo00.pk4", NULL },  /* Doom 3 demo */
+   /* Looked for in the .app directory. */
+   { RDN_ENGINE_INDIRECTX, "Contents/Frameworks/IndirectX.framework", NULL },
 };
 
 const char *
@@ -47,6 +49,7 @@ rdn_engine_name(enum rdn_engine engine)
    case RDN_ENGINE_UNREAL2: return "Unreal Engine 2";
    case RDN_ENGINE_IDTECH3: return "id Tech 3";
    case RDN_ENGINE_IDTECH4: return "id Tech 4";
+   case RDN_ENGINE_INDIRECTX: return "IndirectX";
    default: return "unknown";
    }
 }
@@ -55,7 +58,11 @@ int
 rdn_engine_glthread(enum rdn_engine engine)
 {
    switch (engine) {
-   case RDN_ENGINE_UNREAL2: return 0;
+   /* Programs that leave generic attribute arrays enabled and draw with
+    * the fixed-function pipeline: glthread uploads the wrong arrays for
+    * them (journal 2026-10-11). Unreal 2: no gain, and memory churn. */
+   case RDN_ENGINE_UNREAL2:
+   case RDN_ENGINE_INDIRECTX: return 0;
    case RDN_ENGINE_IDTECH3:
    case RDN_ENGINE_IDTECH4: return 1;
    default: return -1;

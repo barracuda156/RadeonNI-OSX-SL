@@ -1,0 +1,66 @@
+diff --git a/src/mesa/state_tracker/st_atom_array.cpp b/src/mesa/state_tracker/st_atom_array.cpp
+index 2a2dacd..609409c 100644
+--- a/src/mesa/state_tracker/st_atom_array.cpp
++++ b/src/mesa/state_tracker/st_atom_array.cpp
+@@ -49,6 +49,9 @@
+ #include "main/glformats.h"
+ #include "main/varray.h"
+ #include "main/arrayobj.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <unistd.h>
+ 
+ enum st_fill_tc_set_vb {
+    FILL_TC_SET_VB_OFF,        /* always works */
+@@ -634,6 +637,51 @@ st_update_array_impl(struct st_context *st)
+    bool has_identity_mapping = !(enabled_arrays_read &
+                                  (vao->NonIdentityBufferAttribMapping |
+                                   non_identity_attrib_mapping));
++   /*
++    * An array the program reads that has no buffer object is a client
++    * array, whatever the buffer mask says. If the mask were wrong the
++    * variant without user buffers would dereference the missing buffer
++    * object (Sid Meier's Pirates! on Tiger, journal 2026-10-11).
++    */
++   if (!(inputs_read & enabled_user_arrays) && enabled_arrays_read) {
++      const GLubyte *amap = vao->_AttributeMapMode == ATTRIBUTE_MAP_MODE_IDENTITY ?
++         NULL : _mesa_vao_attribute_map[vao->_AttributeMapMode];
++      GLbitfield m = enabled_arrays_read & ~enabled_user_arrays, fix = 0;
++
++      while (m) {
++         const unsigned a = u_bit_scan(&m);
++         const struct gl_array_attributes *at = amap ?
++            &vao->VertexAttrib[amap[a]] : &vao->VertexAttrib[a];
++         const struct gl_vertex_buffer_binding *b = amap ?
++            &vao->BufferBinding[at->BufferBindingIndex] : &vao->BufferBinding[a];
++
++         if (!b->BufferObj)
++            fix |= 1u << a;
++      }
++      if (fix) {
++         static int dbg = -1;
++
++         if (dbg < 0)
++            dbg = getenv("RDN_DEBUG_ARRAYS") != NULL ||
++                  access("/tmp/rdngld.arrays", F_OK) == 0;
++         if (dbg) {
++            FILE *f = fopen("/tmp/rdn-arrays.log", "a");
++
++            if (f) {
++               fprintf(f, "rdn: client arrays 0x%x not in the user mask "
++                       "(inputs 0x%x enabled 0x%x user 0x%x vao->Enabled 0x%x "
++                       "bufmask 0x%x mode %d nonident 0x%x)\n",
++                       fix, (unsigned)inputs_read, (unsigned)enabled_arrays,
++                       (unsigned)enabled_user_arrays, (unsigned)vao->Enabled,
++                       (unsigned)vao->VertexAttribBufferMask,
++                       (int)vao->_AttributeMapMode,
++                       (unsigned)vao->NonIdentityBufferAttribMapping);
++               fclose(f);
++            }
++         }
++         enabled_user_arrays |= fix;
++      }
++   }
+    /* has_user_buffers is always false with glthread. */
+    bool has_user_buffers = inputs_read & enabled_user_arrays;
+    /* Changing from user to non-user buffers and vice versa can switch between

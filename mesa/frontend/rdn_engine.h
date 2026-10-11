@@ -21,6 +21,7 @@ enum rdn_engine {
    RDN_ENGINE_UNREAL2,  /* UT2003, UT2004, ... */
    RDN_ENGINE_IDTECH3,  /* Quake 3 Arena */
    RDN_ENGINE_IDTECH4,  /* Doom 3, Quake 4 */
+   RDN_ENGINE_INDIRECTX, /* Feral's Direct3D 9 layer: Sid Meier's Pirates!, ... */
 };
 
 /* Does the file or directory exist? */

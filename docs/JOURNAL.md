@@ -6256,3 +6256,41 @@ of Quake 4 with glthread off: "slow as shit"; the A/B was stopped after one pair
   `RadeonNIAGPShim` with `class-code`, `vendor-id`, `device-id` and `model` (it had only
   `model`). Not yet run: Sid Meier's Pirates! itself. A loaded framebuffer kext cannot be
   replaced in memory, so the file had to wait for the restart.
+
+## 2026-10-11: Pirates! corrupted geometry and the crashes: stale generic attribute arrays (patches 0011, 0012)
+
+Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asleep).
+
+- Symptoms (user): Pirates! reached the game, drew exploded geometry (UI text as long streaks,
+  the port as spikes) and crashed after a few frames. Reproduced every run (crash reports in
+  `~/Library/Logs/CrashReporter/Sid Meier's Pirates!.crash.log`).
+- Three crash signatures, one cause: glthread on, `memcpy` past a client array in
+  `_mesa_marshal_DrawElements` / `u_upload_data`; glthread off, NULL+0x14 in
+  `st_update_array_templ<..., st_allow_user_buffers 0, ...>` from `glDrawElements` with only the
+  vertex array enabled (`FShadowManager::Render`, IndirectX `DrawPrimTriFan`).
+- GL trace at the crash (`/tmp/rdngld.trace`): the game's Direct3D layer (IndirectX) draws with
+  `glEnableClientState(GL_VERTEX_ARRAY); glVertexPointer(...); glDrawElements(...)`.
+- Patch 0011 logged the state at the failing draw: `vao->Enabled = 0x1f8001`, `bufmask 0`,
+  `_AttributeMapMode` 2 (GENERIC0), inputs 0x1, user mask 0. Generic attribute arrays 0 to 5 were
+  still enabled (left over from the draws with vertex programs) while the fixed-function pipeline
+  drew with the vertex array. Mesa lets generic0 supersede the position array whatever the vertex
+  processing mode is, so the position came from the stale generic0 pointer (geometry from old
+  data; at the crash, memory the program had since freed), and the user-array mask lost the
+  position bit (`_mesa_get_derived_vao_masks` re-maps an already mapped mask), selecting the
+  template that dereferences a missing buffer object.
+- Patch 0012: in fixed-function mode with both the position and generic0 arrays enabled the
+  position array wins (`update_attribute_map_mode`, redone when the vertex processing mode
+  changes and at `glBindVertexArray`). Patch 0011 stays as a guard (a client array that the mask
+  says is a buffer is treated as a client array; the log lines go to `/tmp/rdn-arrays.log` while
+  `/tmp/rdngld.arrays` exists).
+- glthread: its own aliasing rule (generic0 over position) does not know the vertex program mode,
+  so for these programs it uploads the wrong arrays. `mesa/frontend/rdn_engine.c` now has
+  `RDN_ENGINE_INDIRECTX` (marker `Contents/Frameworks/IndirectX.framework` in the .app) with
+  glthread off; `tests/engine_detect.c` covers it. A proper fix in glthread is still to do.
+- Result, bundle d71755e8 (`~/RadeonNIGLDriver.before-arrayguard` is the one before, 4fab96a5):
+  title, menus, intro, crew, tavern, captain, Curacao and St. Martin port screens, merchant and
+  tavern scenes drawn right (static grabs), no crash in six runs. glthread forced on with the
+  engine rule absent crashed again as above. The user has not seen it.
+- Not done: sailing at sea for a long time and fights; the game in the user's hands.
+- Hazard met on the way: keys sent while the game was down went to the Finder and renamed
+  `PiratesData` to " ". Restored (`mv " " PiratesData`). Noted in the drive-mac-gui skill.

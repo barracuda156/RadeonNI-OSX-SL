@@ -22,6 +22,7 @@ static const char *files[] = {
 	"/Users/tiger/Desktop/Doom 3 Demo/demo/demo00.pk4",
 	"/Users/tiger/Desktop/Doom 3/base/pak000.pk4",
 	"/opt/game/bin/baseq3",
+	"/Applications/Sid Meier's Pirates!/Sid Meier's Pirates!.app/Contents/Frameworks/IndirectX.framework",
 	NULL,
 };
 
@@ -70,6 +71,8 @@ int main(void)
 {
 	check("/Applications/Unreal Tournament 2004.app/Contents/MacOS/Unreal Tournament 2004",
 	      RDN_ENGINE_UNREAL2, 0);
+	check("/Applications/Sid Meier's Pirates!/Sid Meier's Pirates!.app/Contents/MacOS/Sid Meier's Pirates!",
+	      RDN_ENGINE_INDIRECTX, 0);
 	/* Unreal Engine 1 has Engine.u too; it was not measured. */
 	check("/Applications/UT99.app/Contents/MacOS/UT",
 	      RDN_ENGINE_UNKNOWN, -1);
