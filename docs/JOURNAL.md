@@ -6250,3 +6250,9 @@ of Quake 4 with glthread off: "slow as shit"; the A/B was stopped after one pair
 - Side finding from the same logs: Unreal Tournament 2004 crashed 2026-10-10 20:28 in
   `_mesa_glthread_upload` (NULL) from `glDrawRangeElements` (a driver bug, not looked at yet).
   Civilization IV's two crashes (disc check in `main`; corrupted stack) are not ours.
+- Installed on the G5 (the user's yes; binary only, into the installed `RadeonNI.kext`; the one
+  before is `~/RadeonNI.kext.before-shim`, md5 ad05d727, new 3fa96a20), mkext and kextcache
+  removed, restarted. Up after 63 s, kext loaded, desktop up. The IOKit loop now shows
+  `RadeonNIAGPShim` with `class-code`, `vendor-id`, `device-id` and `model` (it had only
+  `model`). Not yet run: Sid Meier's Pirates! itself. A loaded framebuffer kext cannot be
+  replaced in memory, so the file had to wait for the restart.
