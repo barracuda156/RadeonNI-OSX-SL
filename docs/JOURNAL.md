@@ -6294,3 +6294,42 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
 - Not done: sailing at sea for a long time and fights; the game in the user's hands.
 - Hazard met on the way: keys sent while the game was down went to the Finder and renamed
   `PiratesData` to " ". Restored (`mv " " PiratesData`). Noted in the drive-mac-gui skill.
+
+## 2026-10-11: Pirates! with glthread on (patch 0013) and glthread on/off numbers
+
+- glthread's own copy of "which arrays are enabled" ignored the vertex processing mode, so
+  with the Direct3D layer's stale generic arrays it uploaded the wrong ones (client arrays
+  freed by the game; crash in `u_upload_data` from `_mesa_unmarshal_DrawElementsUserBufPacked`,
+  journal entry above). `mesa/patches/0013`: `resolve_vao()` computes `Enabled` as the state
+  tracker does after patch 0012 (fixed function: conventional arrays only, position wins over
+  generic 0; a GLSL program: all enabled arrays; an ARB vertex program: only the inputs its
+  text names, scanned at `glProgramStringARB`, tracked per id up to 4096 and dropped at
+  `glDeleteProgramsARB`, unknown inputs such as `vertex.weight` mean "all"). Re-resolved at
+  `glEnable/glDisable(GL_VERTEX_PROGRAM_ARB)`, `glBindProgramARB`, `glUseProgram`,
+  `glPopAttrib` and `glBindVertexArray`.
+- `RDN_ENGINE_INDIRECTX` no longer forces glthread off (no opinion; the default is on).
+- Bundle 2de85dd1 had patch 0013 without the program scan: crashed in
+  `_mesa_glthread_upload` in a sailing scene (report 7: `DrawElementListVS`, a vertex program
+  draw, with arrays enabled that the program does not read). The scan is the fix for that;
+  bundle d2ffdd89 (the one on the G5 now; the one before is
+  `~/RadeonNIGLDriver.before-glthread-mode`) went through the same route without a crash
+  (about 4 minutes of the sailing view plus menus, by static grabs only).
+- `RDN_FPS=1` or the file `/tmp/rdngld.fps`: frames a second once a second into
+  `/tmp/rdn-fps.log` (`gld/rdn_mesa.c`, present of the program's own drawable). The old
+  `RDN_FPS` of the notes was no longer in the source.
+- Numbers (G5, 1920x1080, Pirates!, `/tmp/rdn-fps.log` means of 20 s, CPU from `top`):
+
+  | scene | glthread off | glthread on |
+  |---|---|---|
+  | captain choice (vsync-bound) | 58.3 fps, 72 % of a core | 58.8 fps, 74 % |
+  | shipwright screen | 42.4 fps, 81 % | 41.7 fps, 83 % |
+  | merchant screen | 83.6 fps, 102 % | 91.6 fps, 113 % |
+  | open sea sailing | 36 fps, 50 % (a view near an island) | 54 to 55 fps, 51 to 101 % (a different view) |
+
+  The sea rows are not the same view (the start port and place at sea differ between
+  launches); not comparable. Only the merchant screen (+10 %) shows a gain; the others are
+  equal. One run each.
+- Engine table for UT2004 is unchanged (off). Not tested: the other IndirectX games (none
+  installed), a long game of Pirates!, fights.
+- Mistakes on the way: keys sent after the game quit went to the Finder once (renamed the data
+  folder, restored); a benchmark script clicked at the same spot twice and chose Quit once.

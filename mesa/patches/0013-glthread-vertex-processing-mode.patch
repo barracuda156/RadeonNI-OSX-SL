@@ -1,0 +1,422 @@
+--- a/src/mesa/main/glthread.h
++++ b/src/mesa/main/glthread.h
+@@ -139,10 +139,16 @@
+    GLbitfield UserPointerMask; /**< Bitmask of buffer bindings. */
+    GLbitfield NonNullPointerMask; /**< Bitmask of buffer bindings with non-NULL user pointers. */
+    GLbitfield NonZeroDivisorMask; /**< Bitmask of buffer bindings. */
++   /** The ProgramGen "Enabled" was resolved for (vertex processing mode and
++    * the inputs of the vertex program). */
++   unsigned ResolvedGen;
+ 
+    struct glthread_attrib Attrib[VERT_ATTRIB_MAX];
+ };
+ 
++/** Vertex program ids whose inputs are tracked (the others read all). */
++#define GLTHREAD_VP_TRACKED 4096
++
+ /** A single batch of commands queued up for execution. */
+ struct glthread_batch
+ {
+@@ -194,6 +200,7 @@
+    bool DepthTest;
+    bool Lighting;
+    bool PolygonStipple;
++   bool VertexProgramArb;
+ };
+ 
+ typedef enum {
+@@ -300,6 +307,12 @@
+    bool DebugOutputSynchronous;
+    bool Lighting;
+    bool PolygonStipple;
++   bool VertexProgramArb;   /**< GL_VERTEX_PROGRAM_ARB enabled */
++   GLuint VertexProgramBound; /**< glBindProgramARB(GL_VERTEX_PROGRAM_ARB) */
++   unsigned ProgramGen;       /**< bumped when what a VAO resolves to changes */
++   /** Inputs read by ARB vertex programs, from their text (known if set). */
++   uint32_t VertexProgramInputs[GLTHREAD_VP_TRACKED];
++   uint8_t VertexProgramKnown[GLTHREAD_VP_TRACKED];
+ 
+    GLuint CurrentDrawFramebuffer;
+    GLuint CurrentReadFramebuffer;
+@@ -368,6 +381,12 @@
+ void _mesa_glthread_set_prim_restart(struct gl_context *ctx, GLenum cap,
+                                      bool value);
+ void _mesa_glthread_PrimitiveRestartIndex(struct gl_context *ctx, GLuint index);
++void _mesa_glthread_update_vao_mode(struct gl_context *ctx);
++void _mesa_glthread_bind_vertex_program(struct gl_context *ctx, GLuint id);
++void _mesa_glthread_vertex_program_string(struct gl_context *ctx,
++                                          const GLvoid *text, GLsizei len);
++void _mesa_glthread_delete_vertex_programs(struct gl_context *ctx, GLsizei n,
++                                           const GLuint *ids);
+ void _mesa_glthread_ClientState(struct gl_context *ctx, GLuint *vaobj,
+                                 gl_vert_attrib attrib, bool enable);
+ void _mesa_glthread_AttribDivisor(struct gl_context *ctx, const GLuint *vaobj,
+--- a/src/mesa/main/glthread_marshal.h
++++ b/src/mesa/main/glthread_marshal.h
+@@ -485,6 +485,10 @@
+    case GL_POLYGON_STIPPLE:
+       ctx->GLThread.PolygonStipple = true;
+       break;
++   case GL_VERTEX_PROGRAM_ARB:
++      ctx->GLThread.VertexProgramArb = true;
++      _mesa_glthread_update_vao_mode(ctx);
++      break;
+    case GL_VERTEX_ARRAY:
+    case GL_NORMAL_ARRAY:
+    case GL_COLOR_ARRAY:
+@@ -530,6 +534,10 @@
+    case GL_POLYGON_STIPPLE:
+       ctx->GLThread.PolygonStipple = false;
+       break;
++   case GL_VERTEX_PROGRAM_ARB:
++      ctx->GLThread.VertexProgramArb = false;
++      _mesa_glthread_update_vao_mode(ctx);
++      break;
+    case GL_VERTEX_ARRAY:
+    case GL_NORMAL_ARRAY:
+    case GL_COLOR_ARRAY:
+@@ -593,8 +601,10 @@
+ 
+    attr->Mask = mask;
+ 
+-   if (mask & GL_ENABLE_BIT)
++   if (mask & GL_ENABLE_BIT) {
+       attr->Blend = ctx->GLThread.Blend;
++      attr->VertexProgramArb = ctx->GLThread.VertexProgramArb;
++   }
+ 
+    if (mask & (GL_POLYGON_BIT | GL_ENABLE_BIT)) {
+       attr->CullFace = ctx->GLThread.CullFace;
+@@ -627,8 +637,11 @@
+       &ctx->GLThread.AttribStack[--ctx->GLThread.AttribStackDepth];
+    unsigned mask = attr->Mask;
+ 
+-   if (mask & GL_ENABLE_BIT)
++   if (mask & GL_ENABLE_BIT) {
+       ctx->GLThread.Blend = attr->Blend;
++      ctx->GLThread.VertexProgramArb = attr->VertexProgramArb;
++      _mesa_glthread_update_vao_mode(ctx);
++   }
+ 
+    if (mask & (GL_POLYGON_BIT | GL_ENABLE_BIT)) {
+       ctx->GLThread.CullFace = attr->CullFace;
+--- a/src/mesa/main/glthread_varray.c
++++ b/src/mesa/main/glthread_varray.c
+@@ -33,6 +33,12 @@
+ #include "dispatch.h"
+ #include "main/varray.h"
+ #include "main/context.h"
++#include "util/bitscan.h"
++#include <ctype.h>
++#include <stdio.h>
++#include <string.h>
++
++static void resolve_vao(struct gl_context *ctx, struct glthread_vao *vao);
+ 
+ static unsigned
+ element_size(union gl_vertex_format_user format)
+@@ -60,6 +66,7 @@
+    vao->UserEnabled = 0;
+    vao->Enabled = 0;
+    vao->BufferEnabled = 0;
++   vao->ResolvedGen = 0;
+    vao->UserPointerMask = 0;
+    vao->NonNullPointerMask = 0;
+    vao->NonZeroDivisorMask = 0;
+@@ -126,6 +133,9 @@
+       if (vao)
+          glthread->CurrentVAO = vao;
+    }
++   if (glthread->CurrentVAO &&
++       glthread->CurrentVAO->ResolvedGen != glthread->ProgramGen)
++      resolve_vao(ctx, glthread->CurrentVAO);
+ }
+ 
+ void
+@@ -260,6 +270,204 @@
+       assert(attrib_count >= 0);
+ }
+ 
++/*
++ * The arrays the pipeline reads, from the ones the program enabled. As in
++ * the state tracker (st_atom_array.cpp, patch 0012):
++ *  - with a GLSL program, or an ARB vertex program whose text was not
++ *    scanned: all enabled arrays, and generic attribute 0 supersedes the
++ *    position array;
++ *  - with an ARB vertex program (scanned: the inputs it reads): only the
++ *    arrays it reads. Programs (Sid Meier's Pirates! through its Direct3D
++ *    layer) leave arrays enabled that point at memory they have freed, and
++ *    uploading those would read it;
++ *  - without a program the fixed-function pipeline reads only the
++ *    conventional arrays, so generic arrays left enabled are ignored and the
++ *    position array wins. Without the position array enabled, generic 0
++ *    stands for it.
++ */
++static bool
++glthread_ff_mode(struct gl_context *ctx)
++{
++   return ctx->API == API_OPENGL_COMPAT &&
++          !ctx->GLThread.VertexProgramArb &&
++          ctx->GLThread.CurrentProgram == 0;
++}
++
++/* The inputs of the bound ARB vertex program, or 0 when not known. */
++static GLbitfield
++glthread_vp_inputs(struct gl_context *ctx)
++{
++   struct glthread_state *g = &ctx->GLThread;
++
++   if (ctx->API != API_OPENGL_COMPAT || !g->VertexProgramArb ||
++       g->CurrentProgram != 0 || g->VertexProgramBound == 0 ||
++       g->VertexProgramBound >= GLTHREAD_VP_TRACKED ||
++       !g->VertexProgramKnown[g->VertexProgramBound])
++      return 0;
++   return g->VertexProgramInputs[g->VertexProgramBound];
++}
++
++static void
++resolve_vao(struct gl_context *ctx, struct glthread_vao *vao)
++{
++   const bool ff = glthread_ff_mode(ctx);
++   const GLbitfield user = vao->UserEnabled;
++   const GLbitfield inputs = ff ? 0 : glthread_vp_inputs(ctx);
++   GLbitfield enabled;
++
++   if (ff) {
++      enabled = user & VERT_BIT_FF_ALL;
++      if (!(user & VERT_BIT_POS) && (user & VERT_BIT_GENERIC0))
++         enabled |= VERT_BIT_GENERIC0;
++   } else {
++      enabled = user;
++      if (enabled & VERT_BIT_GENERIC0)
++         enabled &= ~VERT_BIT_POS;
++      if (inputs) {
++         /* The position slot is read through POS or generic 0. */
++         GLbitfield keep = inputs & ~(VERT_BIT_POS | VERT_BIT_GENERIC0);
++
++         if (inputs & (VERT_BIT_POS | VERT_BIT_GENERIC0))
++            keep |= VERT_BIT_POS | VERT_BIT_GENERIC0;
++         enabled &= keep;
++      }
++   }
++
++   for (unsigned i = 0; i < ARRAY_SIZE(vao->Attrib); i++)
++      vao->Attrib[i].EnabledAttribCount = 0;
++   vao->BufferEnabled = 0;
++   vao->BufferInterleaved = 0;
++   vao->Enabled = enabled;
++
++   while (enabled) {
++      const unsigned a = u_bit_scan(&enabled);
++
++      enable_buffer(vao, vao->Attrib[a].BufferIndex);
++   }
++   vao->ResolvedGen = ctx->GLThread.ProgramGen;
++}
++
++/* What the VAOs resolve to may have changed: redo the current one. */
++static void
++program_state_changed(struct gl_context *ctx)
++{
++   struct glthread_vao *vao = ctx->GLThread.CurrentVAO;
++
++   ctx->GLThread.ProgramGen++;
++   if (vao)
++      resolve_vao(ctx, vao);
++}
++
++void
++_mesa_glthread_update_vao_mode(struct gl_context *ctx)
++{
++   program_state_changed(ctx);
++}
++
++void
++_mesa_glthread_bind_vertex_program(struct gl_context *ctx, GLuint id)
++{
++   ctx->GLThread.VertexProgramBound = id;
++   program_state_changed(ctx);
++}
++
++/* The vertex attributes the text of an ARB vertex program reads. */
++static bool
++scan_vertex_program(const char *t, size_t len, GLbitfield *out)
++{
++   GLbitfield in = 0;
++   bool ok = true;
++
++   for (size_t i = 0; i + 8 < len; i++) {
++      const char *p = t + i;
++      unsigned lo, hi;
++
++      if (i > 0 && (isalnum((unsigned char)p[-1]) || p[-1] == '_'))
++         continue;
++      if (!strncmp(p, "OPTION", 6) && strstr(p, "ARB_position_invariant") &&
++          (size_t)(strstr(p, "ARB_position_invariant") - p) < 40)
++         in |= VERT_BIT_POS;
++      if (strncmp(p, "vertex.", 7))
++         continue;
++      p += 7;
++      if (!strncmp(p, "position", 8)) {
++         in |= VERT_BIT_POS;
++      } else if (!strncmp(p, "normal", 6)) {
++         in |= VERT_BIT_NORMAL;
++      } else if (!strncmp(p, "color", 5)) {
++         in |= !strncmp(p + 5, ".secondary", 10) ? VERT_BIT_COLOR1 :
++                                                  VERT_BIT_COLOR0;
++      } else if (!strncmp(p, "fogcoord", 8)) {
++         in |= VERT_BIT_FOG;
++      } else if (!strncmp(p, "pointsize", 9)) {
++         in |= VERT_BIT_POINT_SIZE;
++      } else if (!strncmp(p, "texcoord", 8)) {
++         if (p[8] == '[') {
++            if (sscanf(p + 9, "%u..%u", &lo, &hi) != 2) {
++               if (sscanf(p + 9, "%u", &lo) != 1) {
++                  ok = false;
++                  continue;
++               }
++               hi = lo;
++            }
++            for (; lo <= hi && lo < 8; lo++)
++               in |= VERT_BIT_TEX(lo);
++         } else {
++            in |= VERT_BIT_TEX(0);
++         }
++      } else if (!strncmp(p, "attrib[", 7)) {
++         if (sscanf(p + 7, "%u..%u", &lo, &hi) != 2) {
++            if (sscanf(p + 7, "%u", &lo) != 1) {
++               ok = false;
++               continue;
++            }
++            hi = lo;
++         }
++         for (; lo <= hi && lo < 16; lo++)
++            in |= VERT_BIT_GENERIC(lo);
++      } else {
++         /* weight, matrixindex, ...: not mapped here; read everything. */
++         ok = false;
++      }
++   }
++   *out = in;
++   return ok;
++}
++
++void
++_mesa_glthread_vertex_program_string(struct gl_context *ctx,
++                                     const GLvoid *text, GLsizei len)
++{
++   struct glthread_state *g = &ctx->GLThread;
++   GLuint id = g->VertexProgramBound;
++   GLbitfield inputs;
++
++   if (id == 0 || id >= GLTHREAD_VP_TRACKED)
++      return;
++   if (text && len > 0 && scan_vertex_program(text, len, &inputs) && inputs) {
++      g->VertexProgramInputs[id] = inputs;
++      g->VertexProgramKnown[id] = 1;
++   } else {
++      g->VertexProgramKnown[id] = 0;
++   }
++   program_state_changed(ctx);
++}
++
++void
++_mesa_glthread_delete_vertex_programs(struct gl_context *ctx, GLsizei n,
++                                      const GLuint *ids)
++{
++   struct glthread_state *g = &ctx->GLThread;
++
++   for (GLsizei i = 0; ids && i < n; i++) {
++      if (ids[i] > 0 && ids[i] < GLTHREAD_VP_TRACKED)
++         g->VertexProgramKnown[ids[i]] = 0;
++      if (ids[i] == g->VertexProgramBound)
++         g->VertexProgramBound = 0;
++   }
++   program_state_changed(ctx);
++}
++
+ void
+ _mesa_glthread_ClientState(struct gl_context *ctx, GLuint *vaobj,
+                            gl_vert_attrib attrib, bool enable)
+@@ -282,40 +490,11 @@
+ 
+    if (enable && !(vao->UserEnabled & attrib_bit)) {
+       vao->UserEnabled |= attrib_bit;
+-
+-      /* The generic0 attribute supersedes the position attribute. We need to
+-       * update BufferBindingEnabled accordingly.
+-       */
+-      if (attrib == VERT_ATTRIB_POS) {
+-         if (!(vao->UserEnabled & VERT_BIT_GENERIC0))
+-            enable_buffer(vao, vao->Attrib[VERT_ATTRIB_POS].BufferIndex);
+-      } else {
+-         enable_buffer(vao, vao->Attrib[attrib].BufferIndex);
+-
+-         if (attrib == VERT_ATTRIB_GENERIC0 && vao->UserEnabled & VERT_BIT_POS)
+-            disable_buffer(vao, vao->Attrib[VERT_ATTRIB_POS].BufferIndex);
+-      }
++      resolve_vao(ctx, vao);
+    } else if (!enable && (vao->UserEnabled & attrib_bit)) {
+       vao->UserEnabled &= ~attrib_bit;
+-
+-      /* The generic0 attribute supersedes the position attribute. We need to
+-       * update BufferBindingEnabled accordingly.
+-       */
+-      if (attrib == VERT_ATTRIB_POS) {
+-         if (!(vao->UserEnabled & VERT_BIT_GENERIC0))
+-            disable_buffer(vao, vao->Attrib[VERT_ATTRIB_POS].BufferIndex);
+-      } else {
+-         disable_buffer(vao, vao->Attrib[attrib].BufferIndex);
+-
+-         if (attrib == VERT_ATTRIB_GENERIC0 && vao->UserEnabled & VERT_BIT_POS)
+-            enable_buffer(vao, vao->Attrib[VERT_ATTRIB_POS].BufferIndex);
+-      }
++      resolve_vao(ctx, vao);
+    }
+-
+-   /* The generic0 attribute supersedes the position attribute. */
+-   vao->Enabled = vao->UserEnabled;
+-   if (vao->Enabled & VERT_BIT_GENERIC0)
+-      vao->Enabled &= ~VERT_BIT_POS;
+ }
+ 
+ static void
+--- a/src/mesa/glapi/glapi/gen/gl_API.xml
++++ b/src/mesa/glapi/glapi/gen/gl_API.xml
+@@ -5562,7 +5562,7 @@
+     </function>
+ 
+     <function name="UseProgram" es2="2.0" no_error="true" exec="dlist"
+-              marshal_call_after="ctx->GLThread.CurrentProgram = program;">
++              marshal_call_after="ctx->GLThread.CurrentProgram = program; _mesa_glthread_update_vao_mode(ctx);">
+         <param name="program" type="GLuint"/>
+         <glx ignore="true"/>
+     </function>
+@@ -7176,7 +7176,8 @@
+         <param name="index" type="GLuint"/>
+     </function>
+ 
+-    <function name="ProgramStringARB" deprecated="3.1" exec="dlist">
++    <function name="ProgramStringARB" deprecated="3.1" exec="dlist"
++              marshal_call_after="if (target == GL_VERTEX_PROGRAM_ARB) _mesa_glthread_vertex_program_string(ctx, string, len);">
+         <param name="target" type="GLenum"/>
+         <param name="format" type="GLenum"/>
+         <param name="len" type="GLsizei" counter="true"/>
+@@ -7184,13 +7185,15 @@
+         <glx rop="4217" large="true"/>
+     </function>
+ 
+-    <function name="BindProgramARB" deprecated="3.1" exec="dlist">
++    <function name="BindProgramARB" deprecated="3.1" exec="dlist"
++              marshal_call_after="if (target == GL_VERTEX_PROGRAM_ARB) _mesa_glthread_bind_vertex_program(ctx, program);">
+         <param name="target" type="GLenum"/>
+         <param name="program" type="GLuint"/>
+         <glx rop="4180"/>
+     </function>
+ 
+-    <function name="DeleteProgramsARB" deprecated="3.1">
++    <function name="DeleteProgramsARB" deprecated="3.1"
++              marshal_call_after="_mesa_glthread_delete_vertex_programs(ctx, n, programs);">
+         <param name="n" type="GLsizei" counter="true"/>
+         <param name="programs" type="const GLuint *" count="n"/>
+         <glx vendorpriv="1294"/>

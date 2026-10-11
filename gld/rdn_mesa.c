@@ -1816,6 +1816,44 @@ void rdn_mesa_samples(int samples)
 	OSMesaSetSamples(samples);
 }
 
+/*
+ * RDN_FPS=1 in the environment, or the file /tmp/rdngld.fps (for programs
+ * whose environment is not ours to set): frames a second, once a second, in
+ * /tmp/rdn-fps.log. A frame is one present of the program's own drawable.
+ */
+static void fps_count(void)
+{
+	static int on = -1;
+	static unsigned frames;
+	static double last, first;
+	struct timeval tv;
+	double now;
+
+	if (on < 0)
+		on = getenv("RDN_FPS") != NULL || access("/tmp/rdngld.fps", F_OK) == 0;
+	if (!on)
+		return;
+	gettimeofday(&tv, NULL);
+	now = tv.tv_sec + tv.tv_usec / 1e6;
+	if (last == 0) {
+		last = first = now;
+		return;
+	}
+	frames++;
+	if (now - last >= 1.0) {
+		FILE *f = fopen("/tmp/rdn-fps.log", "a");
+
+		if (f) {
+			fprintf(f, "rdn: fps %.1f (frame %.2f ms) at %.0f s\n",
+				frames / (now - last), 1000.0 * (now - last) / frames,
+				now - first);
+			fclose(f);
+		}
+		frames = 0;
+		last = now;
+	}
+}
+
 void rdn_mesa_present(void *gld_ctx)
 {
 	struct context *c = find(gld_ctx);
@@ -1823,6 +1861,7 @@ void rdn_mesa_present(void *gld_ctx)
 
 	if (!c || !c->rend || !mesa_finish || !read_record(c, &d))
 		return;
+	fps_count();
 	/* A surface may have moved or been covered since the last frame. */
 	if (c->rend != rdn_current_rend || !c->bound || drawable_changed(c) ||
 	    c->type == DRAWABLE_SURFACE)

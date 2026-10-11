@@ -58,13 +58,14 @@ int
 rdn_engine_glthread(enum rdn_engine engine)
 {
    switch (engine) {
-   /* Programs that leave generic attribute arrays enabled and draw with
-    * the fixed-function pipeline: glthread uploads the wrong arrays for
-    * them (journal 2026-10-11). Unreal 2: no gain, and memory churn. */
-   case RDN_ENGINE_UNREAL2:
-   case RDN_ENGINE_INDIRECTX: return 0;
+   /* Unreal 2: no gain, and memory churn. */
+   case RDN_ENGINE_UNREAL2: return 0;
    case RDN_ENGINE_IDTECH3:
    case RDN_ENGINE_IDTECH4: return 1;
+   /* The Direct3D layer leaves generic arrays enabled while the
+    * fixed-function pipeline draws; glthread resolves that since patch
+    * 0013, so it has no opinion (journal 2026-10-11). */
+   case RDN_ENGINE_INDIRECTX:
    default: return -1;
    }
 }
