@@ -38,6 +38,12 @@ private:
 #define super IOService
 OSDefineMetaClassAndStructors(RadeonNIRomProbe, IOService)
 
+static bool isTurks(UInt16 d)
+{
+	return d == 0x675d || d == 0x6758 || d == 0x6759 || d == 0x675b ||
+	       d == 0x675f;
+}
+
 IOPCIDevice *RadeonNIRomProbe::findCard()
 {
 	OSDictionary *match = serviceMatching("IOPCIDevice");
@@ -53,7 +59,7 @@ IOPCIDevice *RadeonNIRomProbe::findCard()
 		IOPCIDevice *dev = OSDynamicCast(IOPCIDevice, obj);
 
 		if (dev && dev->configRead16(kIOPCIConfigVendorID) == 0x1002 &&
-		    dev->configRead16(kIOPCIConfigDeviceID) == 0x675d) {
+		    isTurks(dev->configRead16(kIOPCIConfigDeviceID))) {
 			dev->retain();
 			found = dev;
 		}
@@ -151,7 +157,7 @@ bool RadeonNIRomProbe::start(IOService *provider)
 		return false;
 	dev = findCard();
 	if (!dev) {
-		IOLog("RomProbe: no device 1002:675d\n");
+		IOLog("RomProbe: no Turks device (1002:675d, 6758, 6759, 675b, 675f)\n");
 	} else {
 		probe(dev);
 		dev->release();

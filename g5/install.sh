@@ -87,7 +87,7 @@ card=$(ioreg -p IODeviceTree -l -w0 2>/dev/null | perl -ne '
     if (/\+-o /) { $compat = $assigned = ""; }
     $compat = $1 if /"compatible" = <(.*)>/;
     $assigned = $1 if /"assigned-addresses" = <([0-9a-f]*)>/;
-    if (/^[\s|]*\}/ && $compat =~ /"pci1002,675d"/) {
+    if (/^[\s|]*\}/ && $compat =~ /"pci1002,(675d|6758|6759|675b|675f)"/) {
         $found = 1;
         for ($i = 0; $i + 40 <= length($assigned); $i += 40) {
             $rom = 1 if hex(substr($assigned, $i + 6, 2)) == 0x30;
@@ -98,12 +98,12 @@ card=$(ioreg -p IODeviceTree -l -w0 2>/dev/null | perl -ne '
 ')
 case "$card" in
 rom)
-    echo "Found the Radeon HD 7570 (1002:675d); its ROM has an address." ;;
+    echo "Found a Turks card (1002:675d, 6758, 6759, 675b or 675f); its ROM has an address." ;;
 norom)
-    echo "Found the Radeon HD 7570 (1002:675d); Open Firmware gave its ROM no address."
+    echo "Found a Turks card (1002:675d, 6758, 6759, 675b or 675f); Open Firmware gave its ROM no address."
     [ -n "$vbios" ] || fail "the driver cannot read the card's ROM on this Mac: give a VBIOS image of the card (sudo ./install.sh /path/to/vbios.rom)" ;;
 *)
-    echo "Note: no device 1002:675d in the device tree right now."
+    echo "Note: no Turks device (1002:675d, 6758, 6759, 675b or 675f) in the device tree right now."
     echo "      The kext will be installed but will only load when that card is present."
     [ -n "$vbios" ] || echo "      Without a VBIOS image it will only start if it can read the card's ROM." ;;
 esac

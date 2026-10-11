@@ -559,6 +559,9 @@ void RadeonNIAccel::getInfo(struct rdn_user_info *info)
 	IOLockLock(fLock);
 	info->version = RDN_USER_VERSION;
 	info->pci_device_id = 0x675d;
+	if (fFramebuffer && fFramebuffer->device())
+		info->pci_device_id = fFramebuffer->device()->configRead16(
+			kIOPCIConfigDeviceID);
 	info->vram_gpu_base_hi = (uint32_t)(fAccel.vram_base >> 32);
 	info->vram_gpu_base_lo = (uint32_t)fAccel.vram_base;
 	info->aperture_size = fAccel.aperture_size;

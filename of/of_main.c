@@ -155,7 +155,14 @@ static uint32_t of_peer(uint32_t ph)
 	return prom("peer", 1, 1, in, out) ? 0 : out[0];
 }
 
-/* The Radeon HD 7570 (1002:675d): the same card the kext matches. */
+/* The desktop Turks IDs the kext matches: 675d is the HD 7570 the driver was
+ * made on; the others (6758 HD 6670, 6759, 675b, 675f) are untested. */
+static int is_turks(uint32_t d)
+{
+	return d == 0x675d || d == 0x6758 || d == 0x6759 || d == 0x675b ||
+	       d == 0x675f;
+}
+
 static uint32_t find_card_in(uint32_t ph, int depth)
 {
 	uint32_t v, d, n, r;
@@ -163,7 +170,7 @@ static uint32_t find_card_in(uint32_t ph, int depth)
 	for (; ph && ph != (uint32_t)-1; ph = of_peer(ph)) {
 		v = d = 0;
 		if (of_getprop(ph, "vendor-id", &v, 4) == 4 && v == 0x1002 &&
-		    of_getprop(ph, "device-id", &d, 4) == 4 && d == 0x675d)
+		    of_getprop(ph, "device-id", &d, 4) == 4 && is_turks(d))
 			return ph;
 		n = depth < 12 ? of_child(ph) : 0;
 		if (n && (r = find_card_in(n, depth + 1)))

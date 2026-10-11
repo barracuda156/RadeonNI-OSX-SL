@@ -5,7 +5,11 @@ Quartz Extreme through Mesa's r600 driver.
 STATUS: experimental. It has run on exactly one machine: a Power Mac G5
 Late 2005 (PowerMac11,2) with one HD 7570 (a Dell card, subsystem
 1028:2b20), one monitor on the DVI-I connector at 1920x1080. Any other
-Mac, card or monitor is untested. The kext only loads for 1002:675d.
+Mac, card or monitor is untested. The kext loads for 1002:675d (the card
+above) and, untested, for the other desktop Turks cards: 1002:6758 (HD 6670,
+Turks XT), 6759 (HD 6570/7570 OEM), 675b and 675f (HD 5570/6510). It
+assumes this card's connectors: DVI-I first, then DisplayPort; HDMI and
+VGA outputs are not known to it.
 
 Contents
   RadeonNI.kext   the driver, built for PowerPC with Apple gcc 4.0.1
@@ -69,7 +73,7 @@ What the driver does
 
 What it does not do
   DisplayPort, a second monitor, sleep and wake, display hot-plug, any card
-  other than 1002:675d.
+  other than the Turks IDs above.
 
 Check after restart
   grep RadeonNI /var/log/system.log

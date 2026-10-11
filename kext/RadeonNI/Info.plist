@@ -33,7 +33,7 @@
 			<key>IOProbeScore</key>
 			<integer>65000</integer>
 			<key>IOPCIMatch</key>
-			<string>0x675d1002</string>
+			<string>0x675d1002 0x67581002 0x67591002 0x675b1002 0x675f1002</string>
 			<key>IOProviderClass</key>
 			<string>IOPCIDevice</string>
 		</dict>
