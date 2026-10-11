@@ -80,6 +80,207 @@ const struct rdn_output *rdn_output(int index)
 	return &outputs[index];
 }
 
+/*
+ * The board's own outputs, from the VBIOS's object table as
+ * radeon_get_atom_connector_info_from_object_table() reads it: for each
+ * display path the connector, the internal digital encoder (which UNIPHY and
+ * which link), the DDC line from the connector's I2C record and the
+ * hot-plug line from its HPD record. Only digital connectors on a UNIPHY are
+ * kept. Everything found is logged: the 7570's wiring is built in, and
+ * another board's is what this is for.
+ */
+static uint16_t le16_at(const uint8_t *p)
+{
+	return (uint16_t)(p[0] | (p[1] << 8));
+}
+
+#define EVERGREEN_DC_GPIO_HPD_A	0x64b4
+
+/* radeon_atombios_lookup_gpio() and radeon_atom_get_hpd_info_from_gpio() */
+static int board_hpd(struct rdn_card *card, uint8_t gpio_id)
+{
+	struct atom_context *ctx = card->atom.ctx;
+	int index = GetIndexIntoMasterTable(DATA, GPIO_Pin_LUT);
+	const uint8_t *p;
+	uint16_t size, off;
+	int n, i;
+
+	if (!atom_parse_data_header(ctx, index, &size, NULL, NULL, &off) ||
+	    size < 8)
+		return -1;
+	p = (const uint8_t *)ctx->bios + off + 4;	/* after the header */
+	n = (size - 4) / 4;
+	for (i = 0; i < n; i++, p += 4) {
+		if (p[3] != gpio_id)		/* ucGPIO_ID */
+			continue;
+		if ((uint32_t)le16_at(p) * 4 != EVERGREEN_DC_GPIO_HPD_A)
+			return -1;
+		switch (1u << p[2]) {		/* ucGpioPinBitShift */
+		case 1u << 0:
+			return 0;
+		case 1u << 8:
+			return 1;
+		case 1u << 16:
+			return 2;
+		case 1u << 24:
+			return 3;
+		case 1u << 26:
+			return 4;
+		case 1u << 28:
+			return 5;
+		}
+		return -1;
+	}
+	return -1;
+}
+
+static void name_add(char *dst, size_t max, const char *src)
+{
+	size_t n = strlen(dst);
+
+	while (*src && n + 1 < max)
+		dst[n++] = *src++;
+	dst[n] = '\0';
+}
+
+static void board_outputs_read(struct rdn_card *card)
+{
+	struct atom_context *ctx = card->atom.ctx;
+	int index = GetIndexIntoMasterTable(DATA, Object_Header);
+	const uint8_t *base, *paths, *con;
+	uint16_t size, off;
+	uint8_t frev, crev;
+	int num_paths, ncon, i, j, k, path_off;
+
+	card->num_board = 0;
+	if (!atom_parse_data_header(ctx, index, &size, &frev, &crev, &off) ||
+	    crev < 2) {
+		rdn_log(card->os, RDN_LOG_INFO,
+			"board: the VBIOS has no usable object table");
+		return;
+	}
+	base = (const uint8_t *)ctx->bios + off;
+	/* ATOM_OBJECT_HEADER: usConnectorObjectTableOffset at 6,
+	 * usDisplayPathTableOffset at 14 (after the 4-byte header and
+	 * usDeviceSupport). */
+	con = base + le16_at(base + 6);
+	paths = base + le16_at(base + 14);
+	num_paths = paths[0];
+	ncon = con[0];
+	if (num_paths > 16)
+		num_paths = 16;
+
+	path_off = 4;
+	for (i = 0; i < num_paths; i++) {
+		const uint8_t *path = paths + path_off;
+		uint16_t tag = le16_at(path), psize = le16_at(path + 2);
+		uint16_t conn = le16_at(path + 4);
+		uint8_t conn_id = conn & OBJECT_ID_MASK;
+		uint8_t conn_enum = (conn & ENUM_ID_MASK) >> ENUM_ID_SHIFT;
+		int nobj, enc_id = 0, enc_enum = 0, i2c = -1, hpd = -1;
+		uint16_t enc = 0;
+		struct rdn_output *o;
+
+		if (psize < 8 || psize > 40)
+			break;
+		path_off += psize;
+		nobj = (psize - 8) / 2;
+		for (j = 0; j < nobj; j++) {
+			uint16_t g = le16_at(path + 8 + 2 * j);
+
+			if (((g & OBJECT_TYPE_MASK) >> OBJECT_TYPE_SHIFT) ==
+			    GRAPH_OBJECT_TYPE_ENCODER && !enc) {
+				enc = g;
+				enc_id = g & OBJECT_ID_MASK;
+				enc_enum = (g & ENUM_ID_MASK) >> ENUM_ID_SHIFT;
+			}
+		}
+		/* The connector object's records: DDC line and hot-plug pin. */
+		for (j = 0; j < ncon; j++) {
+			const uint8_t *obj = con + 4 + 8 * j;
+			const uint8_t *rec;
+
+			if (le16_at(obj) != conn)
+				continue;
+			rec = base + le16_at(obj + 4);	/* usRecordOffset */
+			for (k = 0; k < 16 && rec[1] > 0 && rec[0] > 0 &&
+			     rec[0] <= ATOM_MAX_OBJECT_RECORD_NUMBER; k++) {
+				if (rec[0] == ATOM_I2C_RECORD_TYPE)
+					i2c = rec[2];	/* ucAccess */
+				else if (rec[0] == ATOM_HPD_INT_RECORD_TYPE)
+					hpd = board_hpd(card, rec[2]);
+				rec += rec[1];
+			}
+			break;
+		}
+		rdn_log(card->os, RDN_LOG_INFO,
+			"board: path %d: device tag 0x%04x, connector 0x%02x "
+			"(enum %d), encoder 0x%02x (enum %d), DDC line %d, "
+			"hot-plug %d", i, (unsigned)tag, conn_id, conn_enum,
+			enc_id, enc_enum, i2c, hpd);
+
+		/* Digital connectors on a UNIPHY of this chip only. */
+		if (!enc || i2c < 0 ||
+		    (enc_id != ENCODER_OBJECT_ID_INTERNAL_UNIPHY &&
+		     enc_id != ENCODER_OBJECT_ID_INTERNAL_UNIPHY1 &&
+		     enc_id != ENCODER_OBJECT_ID_INTERNAL_UNIPHY2))
+			continue;
+		if (conn_id != CONNECTOR_OBJECT_ID_SINGLE_LINK_DVI_I &&
+		    conn_id != CONNECTOR_OBJECT_ID_DUAL_LINK_DVI_I &&
+		    conn_id != CONNECTOR_OBJECT_ID_SINGLE_LINK_DVI_D &&
+		    conn_id != CONNECTOR_OBJECT_ID_DUAL_LINK_DVI_D &&
+		    conn_id != CONNECTOR_OBJECT_ID_HDMI_TYPE_A &&
+		    conn_id != CONNECTOR_OBJECT_ID_HDMI_TYPE_B &&
+		    conn_id != CONNECTOR_OBJECT_ID_DISPLAYPORT)
+			continue;
+		if (card->num_board >= RDN_MAX_BOARD_OUTPUTS)
+			break;
+		o = &card->board[card->num_board];
+		memset(o, 0, sizeof(*o));
+		o->displayport = conn_id == CONNECTOR_OBJECT_ID_DISPLAYPORT;
+		o->connector_id = conn_id;
+		o->transmitter_id = (uint8_t)enc_id;
+		o->transmitter_sel = enc_id == ENCODER_OBJECT_ID_INTERNAL_UNIPHY ? 0 :
+			enc_id == ENCODER_OBJECT_ID_INTERNAL_UNIPHY1 ? 1 : 2;
+		o->linkb = enc_enum == 2;	/* radeon_atombios_set_dig_info */
+		o->dig_encoder = (uint8_t)(o->transmitter_sel * 2 + (o->linkb ? 1 : 0));
+		o->hpd = hpd < 0 ? 0 : (uint8_t)hpd;
+		o->i2c_id = (uint8_t)i2c;
+		{
+			char *n = card->board_name[card->num_board];
+
+			n[0] = '\0';
+			name_add(n, sizeof(card->board_name[0]),
+				 o->displayport ? "DisplayPort" :
+				 (conn_id == CONNECTOR_OBJECT_ID_HDMI_TYPE_A ||
+				  conn_id == CONNECTOR_OBJECT_ID_HDMI_TYPE_B) ? "HDMI" :
+				 (conn_id == CONNECTOR_OBJECT_ID_SINGLE_LINK_DVI_I ||
+				  conn_id == CONNECTOR_OBJECT_ID_DUAL_LINK_DVI_I) ? "DVI-I" : "DVI-D");
+			name_add(n, sizeof(card->board_name[0]),
+				 o->transmitter_sel == 0 ? " UNIPHY0" :
+				 o->transmitter_sel == 1 ? " UNIPHY1" : " UNIPHY2");
+			name_add(n, sizeof(card->board_name[0]), o->linkb ? " B" : " A");
+			o->name = n;
+		}
+		card->num_board++;
+	}
+}
+
+static bool output_same_wiring(const struct rdn_output *a,
+			       const struct rdn_output *b)
+{
+	return a->displayport == b->displayport &&
+	       a->transmitter_sel == b->transmitter_sel &&
+	       a->dig_encoder == b->dig_encoder && a->i2c_id == b->i2c_id;
+}
+
+/* Is `out` one of the two built in? */
+static bool output_is_builtin(const struct rdn_output *out)
+{
+	return out >= &outputs[0] &&
+	       out < &outputs[sizeof(outputs) / sizeof(outputs[0])];
+}
+
 static const struct rdn_output *card_output(struct rdn_card *card)
 {
 	return card->output ? card->output : &outputs[RDN_OUTPUT_DVI];
@@ -910,6 +1111,8 @@ static int dig_transmitter_setup(struct rdn_card *card,
 	if (cmd_table_check(card, index, "UNIPHYTransmitterControl", 1, 4))
 		return -EINVAL;
 	config |= 1 << 1;				/* fCoherentMode */
+	if (out->linkb)
+		config |= 1 << 2;			/* ucLinkSel */
 	config |= (out->dig_encoder & 1) << 3;		/* ucEncoderSel */
 	config |= (output_pll(card) & 3) << 4;		/* ucRefClkSource */
 	config |= out->transmitter_sel << 6;		/* ucTransmitterSel */
@@ -970,7 +1173,8 @@ static int dig_transmitter_init(struct rdn_card *card,
 	ps_init(&ps);
 	ps_le16(&ps, 0, out->connector_id);		/* usInitInfo */
 	/* acConfig: coherent mode and the transmitter; no encoder yet */
-	ps_u8(&ps, 2, (1 << 1) | (out->transmitter_sel << 6));
+	ps_u8(&ps, 2, (1 << 1) | ((out->linkb ? 1 : 0) << 2) |
+	      (out->transmitter_sel << 6));
 	ps_u8(&ps, 3, ATOM_TRANSMITTER_ACTION_INIT);	/* ucAction */
 	ps_u8(&ps, 4, 4);				/* ucLaneNum */
 	return ps_exec(card, index, &ps);
@@ -1026,18 +1230,50 @@ static int output_edid(struct rdn_card *card, const struct rdn_output *out,
 	return r;
 }
 
+/*
+ * In this order: DVI-I and DisplayPort as the 7570 has them; the
+ * DisplayPort connector's lines as TMDS (a board that wires a DVI-D port
+ * there: the BIOS answers a DVI sink type and AUX does not); then what the
+ * VBIOS's object table says this board has, minus what was tried.
+ */
 int rdn_output_detect(struct rdn_card *card, uint8_t *edid)
 {
-	int r = -ENODEV, i;
+	const struct rdn_output *cand[2 + 1 + RDN_MAX_BOARD_OUTPUTS];
+	int n = 0, r = -ENODEV, i, j;
 
-	for (i = 0; rdn_output(i); i++) {
-		r = output_edid(card, rdn_output(i), edid);
+	board_outputs_read(card);
+	card->twin = outputs[RDN_OUTPUT_DP];
+	card->twin.displayport = false;
+	card->twin.connector_id = CONNECTOR_OBJECT_ID_DUAL_LINK_DVI_D;
+	card->twin.name = "DVI on the DisplayPort lines";
+
+	cand[n++] = &outputs[RDN_OUTPUT_DVI];
+	cand[n++] = &outputs[RDN_OUTPUT_DP];
+	cand[n++] = &card->twin;
+	for (i = 0; i < card->num_board; i++) {
+		bool seen = false;
+
+		for (j = 0; j < n; j++)
+			if (output_same_wiring(cand[j], &card->board[i]))
+				seen = true;
+		if (!seen)
+			cand[n++] = &card->board[i];
+	}
+
+	for (i = 0; i < n; i++) {
+		r = output_edid(card, cand[i], edid);
 		if (r > 0) {
-			rdn_output_select(card, rdn_output(i));
+			rdn_log(card->os, RDN_LOG_INFO,
+				"%s: EDID found (UNIPHY%d%s, DDC line 0x%02x, "
+				"hot-plug %d)", cand[i]->name,
+				cand[i]->transmitter_sel,
+				cand[i]->linkb ? " link B" : "",
+				cand[i]->i2c_id, cand[i]->hpd);
+			rdn_output_select(card, cand[i]);
 			return r;
 		}
 		rdn_log(card->os, RDN_LOG_INFO, "%s: no EDID (%d)",
-			rdn_output(i)->name, r);
+			cand[i]->name, r);
 	}
 	return r < 0 ? r : -ENODEV;
 }
@@ -1065,6 +1301,11 @@ int rdn_display_init(struct rdn_card *card)
 	r = dig_transmitter_init(card, &outputs[RDN_OUTPUT_DVI]);
 	if (r)
 		return r;
+	if (card->output && !output_is_builtin(card->output)) {
+		r = dig_transmitter_init(card, card->output);
+		if (r)
+			return r;
+	}
 
 	/* atombios_crtc_set_disp_eng_pll(), PIXEL_CLOCK_PARAMETERS_V6 */
 	if (!atom_parse_data_header(ctx, GetIndexIntoMasterTable(DATA, FirmwareInfo),
@@ -1216,6 +1457,8 @@ void rdn_output_hpd_enable(struct rdn_card *card)
 {
 	rdn_dp_hpd_init(card, &outputs[RDN_OUTPUT_DP]);
 	rdn_dp_hpd_init(card, &outputs[RDN_OUTPUT_DVI]);
+	if (card->output && !output_is_builtin(card->output))
+		rdn_dp_hpd_init(card, card->output);
 }
 
 /*

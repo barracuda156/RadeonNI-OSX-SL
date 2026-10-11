@@ -6367,3 +6367,20 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   changed `glthread_varray.c` and left `.rej` files. Restored from patch's own `.orig`
   (identical), rejects removed. The patch series also does not replay from a pristine tree
   (0008 reports "previously applied" on `glthread.h`).
+
+## 2026-10-11: outputs from the VBIOS (a 6670 on 10.5 found no EDID)
+
+- The 6670's log: POST fine (ROM, 1024 MB), `DVI-I: no EDID (-110)`, `DisplayPort: sink
+  type 0x04 ... AUX status a1, hot-plug high`, no EDID anywhere; monitor on DVI, direct cable.
+  Sink type is a connector object id (0x04 = dual-link DVI-D), so the lines called
+  "DisplayPort" are a DVI-D port on that board.
+- `hw/rdn_modeset.c`: `rdn_output_detect()` now also tries the DisplayPort lines as TMDS and the
+  outputs from the VBIOS object table (parse ported from Linux, logged as `board: path ...`);
+  `rdn_output.linkb`; transmitter init and hot-plug enable for a selected output that is not
+  built in. The two built-in outputs are tried first and unchanged: the reference-trace tests
+  (modeset, DP, accel) pass identically on x86 and PowerPC. New `tests/board_outputs.c`:
+  on the 7570's VBIOS the table gives exactly the built-in DVI-I (UNIPHY0, DIG0, DDC 0x93,
+  HPD1) and DisplayPort (UNIPHY2, DIG4, 0x92, HPD4).
+- Never run on any card but as a test. Not driven: link B, HDMI audio, hot-plug on a table
+  output (`rdn_dp_hpd_init` is called for it; the kext's polling was written for the built-in
+  two). The Tiger kext gets the change too (hw/ is shared).

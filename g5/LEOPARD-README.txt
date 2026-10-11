@@ -39,6 +39,10 @@ VBIOS image of the card ("sudo sh ./install.sh /path/to/vbios.rom").
 
 What to send back: the output of the commands above, the output of
 "sw_vers" and "uname -a", the Mac model ("system_profiler
-SPHardwareDataType"), and whether the monitor showed anything.
+SPHardwareDataType"), and whether the monitor showed anything. The most
+useful part is every line of the system log that starts with "RadeonNI:":
+this build lists the connectors the card's VBIOS describes ("board: path
+...") and says which one answered with an EDID. Also say which port the
+monitor is on and whether it is a direct cable.
 
 The driver is MIT-licensed (LICENSE). Nothing is ever written to the card.

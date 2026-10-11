@@ -56,6 +56,22 @@ For the 160 family symbols only names and reserved slots were checked: all
 the kext references are still unused in the Leopard-era headers, and every
 method name is in the header. Signatures were not compared.
 
+## Outputs from the VBIOS (2026-10-11)
+
+The first run on a Mac with a retail HD 6670 (`1002:6758`) found no EDID: the
+driver only knew the 7570 board's two connectors (DVI-I on UNIPHY0, DDC 0x93;
+"DisplayPort" on UNIPHY2, DDC 0x92). The BIOS answered sink type 0x04, dual-link
+DVI-D, on the "DisplayPort" lines, and HPD4 read high. Since then
+`rdn_output_detect()` (`hw/rdn_modeset.c`) tries, in order: the two built in; the
+DisplayPort lines as TMDS (`card->twin`); and the outputs the VBIOS's object
+table describes (`board_outputs_read()`, a port of
+`radeon_get_atom_connector_info_from_object_table()`: UNIPHY and link from the
+encoder object, DDC line from the connector's I2C record, hot-plug pin from its
+HPD record through the GPIO pin table). Every path is logged as `board: path ...`.
+Link B is supported in the transmitter blocks (`rdn_output.linkb`); nothing has
+driven a link B output. `tests/board_outputs.c` checks the parse against the
+7570's VBIOS: it must return the built-in wiring.
+
 ## Not done, not known
 
 - **A load on a real 10.5.** `kextload -t -n` there is the first test.

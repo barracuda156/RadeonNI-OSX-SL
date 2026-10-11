@@ -27,7 +27,11 @@ struct rdn_output {
 	uint8_t dig_encoder;	/* digital encoder Linux uses with it */
 	uint8_t hpd;		/* hot-plug line, 0 is HPD1 */
 	uint8_t i2c_id;		/* DDC line, and the AUX channel in its low bits */
+	bool linkb;		/* the transmitter's link B (encoder object enum 2) */
 };
+
+/* Outputs read from the VBIOS's object table (rdn_modeset.c). */
+#define RDN_MAX_BOARD_OUTPUTS	8
 
 /* The DisplayPort link of the output in use (rdn_dp.c). */
 struct rdn_dp {
@@ -44,6 +48,15 @@ struct rdn_card {
 	struct rdn_atom atom;
 	/* The output rdn_modeset() drives; NULL is the DVI-I connector. */
 	const struct rdn_output *output;
+	/*
+	 * Tried by rdn_output_detect() after the two built in (the 7570's
+	 * wiring): the board's own, from the VBIOS, and the lines of the
+	 * built-in DisplayPort output driven as TMDS (a DVI-D port there).
+	 */
+	struct rdn_output twin;
+	struct rdn_output board[RDN_MAX_BOARD_OUTPUTS];
+	char board_name[RDN_MAX_BOARD_OUTPUTS][28];
+	int num_board;
 	struct rdn_dp dp;
 	/* CRTC 0 is scanning out; kept up to date by POST and modeset. */
 	bool crtc_on;
