@@ -1,23 +1,40 @@
+--- a/src/mesa/main/mtypes.h
++++ b/src/mesa/main/mtypes.h
+@@ -2404,9 +2404,21 @@
+ /**
+  * State which can be shared by multiple contexts:
+  */
++/** Vertex program ids whose inputs glthread tracks (the others read all). */
++#define GLTHREAD_VP_TRACKED 4096
++
+ struct gl_shared_state
+ {
+    simple_mtx_t Mutex;		   /**< for thread safety */
++
++   /**
++    * osx-gpu: the vertex attributes each ARB vertex program reads, from its
++    * text, for glthread (it must know them on the application thread).
++    * Programs are shared between contexts, so this is too. "Known" is
++    * written last, with a barrier (p_atomic_cmpxchg).
++    */
++   uint32_t GLThreadVPInputs[GLTHREAD_VP_TRACKED];
++   int GLThreadVPKnown[GLTHREAD_VP_TRACKED];
+    GLint RefCount;			   /**< Reference count */
+    bool DisplayListsAffectGLThread;
+ 
 --- a/src/mesa/main/glthread.h
 +++ b/src/mesa/main/glthread.h
-@@ -139,10 +139,16 @@
+@@ -139,6 +139,9 @@
     GLbitfield UserPointerMask; /**< Bitmask of buffer bindings. */
     GLbitfield NonNullPointerMask; /**< Bitmask of buffer bindings with non-NULL user pointers. */
     GLbitfield NonZeroDivisorMask; /**< Bitmask of buffer bindings. */
 +   /** The ProgramGen "Enabled" was resolved for (vertex processing mode and
 +    * the inputs of the vertex program). */
-+   unsigned ResolvedGen;
++   unsigned ProgramGenResolved;
  
     struct glthread_attrib Attrib[VERT_ATTRIB_MAX];
  };
- 
-+/** Vertex program ids whose inputs are tracked (the others read all). */
-+#define GLTHREAD_VP_TRACKED 4096
-+
- /** A single batch of commands queued up for execution. */
- struct glthread_batch
- {
-@@ -194,6 +200,7 @@
+@@ -194,6 +197,7 @@
     bool DepthTest;
     bool Lighting;
     bool PolygonStipple;
@@ -25,29 +42,29 @@
  };
  
  typedef enum {
-@@ -300,6 +307,12 @@
+@@ -300,6 +304,9 @@
     bool DebugOutputSynchronous;
     bool Lighting;
     bool PolygonStipple;
 +   bool VertexProgramArb;   /**< GL_VERTEX_PROGRAM_ARB enabled */
 +   GLuint VertexProgramBound; /**< glBindProgramARB(GL_VERTEX_PROGRAM_ARB) */
 +   unsigned ProgramGen;       /**< bumped when what a VAO resolves to changes */
-+   /** Inputs read by ARB vertex programs, from their text (known if set). */
-+   uint32_t VertexProgramInputs[GLTHREAD_VP_TRACKED];
-+   uint8_t VertexProgramKnown[GLTHREAD_VP_TRACKED];
  
     GLuint CurrentDrawFramebuffer;
     GLuint CurrentReadFramebuffer;
-@@ -368,6 +381,12 @@
+@@ -368,6 +375,15 @@
  void _mesa_glthread_set_prim_restart(struct gl_context *ctx, GLenum cap,
                                       bool value);
  void _mesa_glthread_PrimitiveRestartIndex(struct gl_context *ctx, GLuint index);
 +void _mesa_glthread_update_vao_mode(struct gl_context *ctx);
++void _mesa_glthread_debug_draw(struct gl_context *ctx, const char *what);
 +void _mesa_glthread_bind_vertex_program(struct gl_context *ctx, GLuint id);
 +void _mesa_glthread_vertex_program_string(struct gl_context *ctx,
 +                                          const GLvoid *text, GLsizei len);
 +void _mesa_glthread_delete_vertex_programs(struct gl_context *ctx, GLsizei n,
 +                                           const GLuint *ids);
++void _mesa_glthread_scan_vertex_program(struct gl_context *ctx, GLuint id,
++                                        const GLvoid *text, GLsizei len);
  void _mesa_glthread_ClientState(struct gl_context *ctx, GLuint *vaobj,
                                  gl_vert_attrib attrib, bool enable);
  void _mesa_glthread_AttribDivisor(struct gl_context *ctx, const GLuint *vaobj,
@@ -102,51 +119,53 @@
        ctx->GLThread.CullFace = attr->CullFace;
 --- a/src/mesa/main/glthread_varray.c
 +++ b/src/mesa/main/glthread_varray.c
-@@ -33,6 +33,12 @@
+@@ -33,6 +33,14 @@
  #include "dispatch.h"
  #include "main/varray.h"
  #include "main/context.h"
 +#include "util/bitscan.h"
++#include "util/u_atomic.h"
 +#include <ctype.h>
 +#include <stdio.h>
 +#include <string.h>
++#include <unistd.h>
 +
 +static void resolve_vao(struct gl_context *ctx, struct glthread_vao *vao);
  
  static unsigned
  element_size(union gl_vertex_format_user format)
-@@ -60,6 +66,7 @@
+@@ -60,6 +68,7 @@
     vao->UserEnabled = 0;
     vao->Enabled = 0;
     vao->BufferEnabled = 0;
-+   vao->ResolvedGen = 0;
++   vao->ProgramGenResolved = 0;
     vao->UserPointerMask = 0;
     vao->NonNullPointerMask = 0;
     vao->NonZeroDivisorMask = 0;
-@@ -126,6 +133,9 @@
+@@ -126,6 +135,9 @@
        if (vao)
           glthread->CurrentVAO = vao;
     }
 +   if (glthread->CurrentVAO &&
-+       glthread->CurrentVAO->ResolvedGen != glthread->ProgramGen)
++       glthread->CurrentVAO->ProgramGenResolved != glthread->ProgramGen)
 +      resolve_vao(ctx, glthread->CurrentVAO);
  }
  
  void
-@@ -150,8 +160,11 @@
+@@ -150,8 +162,11 @@
         * for that object reverts to zero and the default vertex array
         * becomes current."
         */
 -      if (glthread->CurrentVAO == vao)
 +      if (glthread->CurrentVAO == vao) {
           glthread->CurrentVAO = &glthread->DefaultVAO;
-+         if (glthread->DefaultVAO.ResolvedGen != glthread->ProgramGen)
++         if (glthread->DefaultVAO.ProgramGenResolved != glthread->ProgramGen)
 +            resolve_vao(ctx, &glthread->DefaultVAO);
 +      }
  
        if (glthread->LastLookedUpVAO == vao)
           glthread->LastLookedUpVAO = NULL;
-@@ -260,6 +273,204 @@
+@@ -260,6 +275,281 @@
        assert(attrib_count >= 0);
  }
  
@@ -173,18 +192,32 @@
 +          ctx->GLThread.CurrentProgram == 0;
 +}
 +
-+/* The inputs of the bound ARB vertex program, or 0 when not known. */
++/* The inputs of the bound ARB vertex program, or 0 when not known. The
++ * table is the share group's: programs are shared between contexts. */
 +static GLbitfield
 +glthread_vp_inputs(struct gl_context *ctx)
 +{
 +   struct glthread_state *g = &ctx->GLThread;
++   struct gl_shared_state *sh = ctx->Shared;
 +
 +   if (ctx->API != API_OPENGL_COMPAT || !g->VertexProgramArb ||
 +       g->CurrentProgram != 0 || g->VertexProgramBound == 0 ||
-+       g->VertexProgramBound >= GLTHREAD_VP_TRACKED ||
-+       !g->VertexProgramKnown[g->VertexProgramBound])
++       g->VertexProgramBound >= GLTHREAD_VP_TRACKED || !sh ||
++       !p_atomic_read(&sh->GLThreadVPKnown[g->VertexProgramBound]))
 +      return 0;
-+   return g->VertexProgramInputs[g->VertexProgramBound];
++   return sh->GLThreadVPInputs[g->VertexProgramBound];
++}
++
++static void
++glthread_vp_set(struct gl_context *ctx, GLuint id, GLbitfield inputs, int known)
++{
++   struct gl_shared_state *sh = ctx->Shared;
++
++   if (!sh || id == 0 || id >= GLTHREAD_VP_TRACKED)
++      return;
++   sh->GLThreadVPInputs[id] = inputs;
++   p_atomic_cmpxchg(&sh->GLThreadVPKnown[id],
++                    p_atomic_read(&sh->GLThreadVPKnown[id]), known);
 +}
 +
 +static void
@@ -224,7 +257,7 @@
 +
 +      enable_buffer(vao, vao->Attrib[a].BufferIndex);
 +   }
-+   vao->ResolvedGen = ctx->GLThread.ProgramGen;
++   vao->ProgramGenResolved = ctx->GLThread.ProgramGen;
 +}
 +
 +/* What the VAOs resolve to may have changed: redo the current one. */
@@ -242,6 +275,57 @@
 +_mesa_glthread_update_vao_mode(struct gl_context *ctx)
 +{
 +   program_state_changed(ctx);
++}
++
++/*
++ * A log of the array state at draws, for programs that crash glthread
++ * (journal 2026-10-11): while /tmp/rdngld.arrays exists, one line in
++ * /tmp/rdn-arrays.log for every new combination of what the draw reads.
++ */
++void
++_mesa_glthread_debug_draw(struct gl_context *ctx, const char *what)
++{
++   static int on = -1;
++   static uint64_t seen[512];
++   static unsigned nseen;
++   struct glthread_state *g = &ctx->GLThread;
++   struct glthread_vao *vao = g->CurrentVAO;
++   struct gl_shared_state *sh = ctx->Shared;
++   const GLuint b = g->VertexProgramBound;
++   const int known = b < GLTHREAD_VP_TRACKED ? sh->GLThreadVPKnown[b] : -1;
++
++   if (on < 0)
++      on = access("/tmp/rdngld.arrays", F_OK) == 0;
++   if (!on)
++      return;
++
++   uint64_t key = ((uint64_t)vao->UserEnabled * 0x9E3779B97F4A7C15ull) ^
++                  ((uint64_t)vao->Enabled << 21) ^ ((uint64_t)b << 7) ^
++                  ((uint64_t)g->CurrentProgram << 40) ^
++                  ((uint64_t)g->VertexProgramArb << 3) ^
++                  ((uint64_t)vao->UserPointerMask << 11) ^
++                  ((uint64_t)(known + 1) << 5);
++   for (unsigned i = 0; i < nseen; i++)
++      if (seen[i] == key)
++         return;
++   if (nseen < 512)
++      seen[nseen++] = key;
++
++   FILE *f = fopen("/tmp/rdn-arrays.log", "a");
++   if (!f)
++      return;
++   fprintf(f, "%s: ctx %p user 0x%x enabled 0x%x userptr 0x%x arbvp %d "
++           "bound %u known %d inputs 0x%x glsl %u ff %d\n", what, (void *)ctx,
++           (unsigned)vao->UserEnabled, (unsigned)vao->Enabled,
++           (unsigned)vao->UserPointerMask, g->VertexProgramArb, b, known,
++           known > 0 ? (unsigned)sh->GLThreadVPInputs[b] : 0,
++           g->CurrentProgram, glthread_ff_mode(ctx));
++   for (unsigned a = 0; a < VERT_ATTRIB_MAX; a++)
++      if (vao->UserEnabled & (1u << a))
++         fprintf(f, "   attrib %u: buffer %u ptr %p stride %d\n", a,
++                 vao->Attrib[a].BufferIndex, vao->Attrib[a].Pointer,
++                 vao->Attrib[a].Stride);
++   fclose(f);
 +}
 +
 +void
@@ -314,22 +398,35 @@
 +   return ok;
 +}
 +
++/* Also called from the program's own entry point (arbprogram.c), which runs
++ * whether or not glthread was already on for the call. */
++void
++_mesa_glthread_scan_vertex_program(struct gl_context *ctx, GLuint id,
++                                   const GLvoid *text, GLsizei len)
++{
++   GLbitfield inputs = 0;
++   bool known = text && len > 0 &&
++                scan_vertex_program(text, len, &inputs) && inputs;
++
++   if (access("/tmp/rdngld.arrays", F_OK) == 0) {
++      FILE *f = fopen("/tmp/rdn-arrays.log", "a");
++
++      if (f) {
++         fprintf(f, "ProgramStringARB(vertex) ctx %p id %u len %d known %d "
++                 "inputs 0x%x\n", (void *)ctx, id, (int)len, (int)known,
++                 (unsigned)inputs);
++         fclose(f);
++      }
++   }
++   glthread_vp_set(ctx, id, known ? inputs : 0, known);
++}
++
 +void
 +_mesa_glthread_vertex_program_string(struct gl_context *ctx,
 +                                     const GLvoid *text, GLsizei len)
 +{
-+   struct glthread_state *g = &ctx->GLThread;
-+   GLuint id = g->VertexProgramBound;
-+   GLbitfield inputs;
-+
-+   if (id == 0 || id >= GLTHREAD_VP_TRACKED)
-+      return;
-+   if (text && len > 0 && scan_vertex_program(text, len, &inputs) && inputs) {
-+      g->VertexProgramInputs[id] = inputs;
-+      g->VertexProgramKnown[id] = 1;
-+   } else {
-+      g->VertexProgramKnown[id] = 0;
-+   }
++   _mesa_glthread_scan_vertex_program(ctx, ctx->GLThread.VertexProgramBound,
++                                      text, len);
 +   program_state_changed(ctx);
 +}
 +
@@ -340,8 +437,7 @@
 +   struct glthread_state *g = &ctx->GLThread;
 +
 +   for (GLsizei i = 0; ids && i < n; i++) {
-+      if (ids[i] > 0 && ids[i] < GLTHREAD_VP_TRACKED)
-+         g->VertexProgramKnown[ids[i]] = 0;
++      glthread_vp_set(ctx, ids[i], 0, 0);
 +      if (ids[i] == g->VertexProgramBound)
 +         g->VertexProgramBound = 0;
 +   }
@@ -351,7 +447,7 @@
  void
  _mesa_glthread_ClientState(struct gl_context *ctx, GLuint *vaobj,
                             gl_vert_attrib attrib, bool enable)
-@@ -282,40 +493,11 @@
+@@ -282,40 +572,11 @@
  
     if (enable && !(vao->UserEnabled & attrib_bit)) {
        vao->UserEnabled |= attrib_bit;
@@ -394,7 +490,7 @@
  }
  
  static void
-@@ -665,6 +847,9 @@
+@@ -665,6 +926,9 @@
     assert(top->VAO.Name == vao->Name);
     *vao = top->VAO; /* Copy all fields. */
     glthread->CurrentVAO = vao;
@@ -404,6 +500,16 @@
  }
  
  void
+--- a/src/mesa/main/glthread_draw.c
++++ b/src/mesa/main/glthread_draw.c
+@@ -800,6 +800,7 @@
+    }
+ 
+    struct glthread_vao *vao = ctx->GLThread.CurrentVAO;
++   _mesa_glthread_debug_draw(ctx, "DrawElements");
+    unsigned user_buffer_mask =
+       _mesa_is_desktop_gl_core(ctx) ? 0 : get_user_buffer_mask(ctx);
+    bool has_user_indices = vao->CurrentElementBufferName == 0 && indices;
 --- a/src/mesa/glapi/glapi/gen/gl_API.xml
 +++ b/src/mesa/glapi/glapi/gen/gl_API.xml
 @@ -5562,7 +5562,7 @@
@@ -443,3 +549,25 @@
          <param name="n" type="GLsizei" counter="true"/>
          <param name="programs" type="const GLuint *" count="n"/>
          <glx vendorpriv="1294"/>
+--- a/src/mesa/main/arbprogram.c
++++ b/src/mesa/main/arbprogram.c
+@@ -37,6 +37,7 @@
+ #include "main/macros.h"
+ #include "main/mtypes.h"
+ #include "main/shaderapi.h"
++#include "main/glthread.h"
+ #include "main/state.h"
+ #include "program/arbprogparse.h"
+ #include "program/program.h"
+@@ -484,6 +485,11 @@
+ {
+    GET_CURRENT_CONTEXT(ctx);
+    if (target == GL_VERTEX_PROGRAM_ARB && ctx->Extensions.ARB_vertex_program) {
++      /* osx-gpu: glthread must know the inputs of the program, also when
++       * the call was made before glthread was on for this context. */
++      if (string && len > 0 && ctx->VertexProgram.Current)
++         _mesa_glthread_scan_vertex_program(ctx, ctx->VertexProgram.Current->Id,
++                                            string, len);
+       set_program_string(ctx->VertexProgram.Current, target, format, len, string);
+    }
+    else if (target == GL_FRAGMENT_PROGRAM_ARB
