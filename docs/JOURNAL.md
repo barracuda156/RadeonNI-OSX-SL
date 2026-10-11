@@ -6229,3 +6229,24 @@ of Quake 4 with glthread off: "slow as shit"; the A/B was stopped after one pair
   its fences are as before).
 - Installed on the G5; the bundle before is `~/RadeonNIGLDriver.before-vardefault` (8bfd6832,
   directory form). Not seen by the user on screen with it in other games.
+
+## 2026-10-11 — Sid Meier's Pirates! crashed in `CheckDisplay`: the AGP shim had no `class-code`
+
+- Crash report (G5, `~/Library/Logs/CrashReporter/Sid Meier's Pirates!.crash.log`): NULL read in
+  `CFDataGetBytePtr` from `ZonicLib` `CDisplayManager::GetDeviceinfo` from
+  `CMacGame::InitialiseDisplay`, before any drawing.
+- Disassembly of `GetDeviceinfo` (otool on the G5): it walks every `IOPCIDevice`
+  (`IOServiceMatching` + iterator), reads `class-code` of each with no NULL check, keeps those
+  whose class is `0x03`, then reads the name and `vendor-id`/`device-id`.
+- A 20-line IOKit program doing the same loop listed 21 entries: 20 real PCI devices with all
+  three properties, and `RadeonNIAGPShim` (our registered `IOAGPDevice`, which is an
+  `IOPCIDevice` subclass) with only `model`. That entry is what the game choked on. Not an
+  OpenGL problem.
+- Change: `RadeonNIAccel.cpp` gives the shim `class-code` = 0 (not a display, so nothing takes
+  it for a second card) and the real card's `vendor-id` and `device-id`. Built in the guest
+  (`scripts/kext.sh build`), no new warnings. NOT installed on the G5 and not run: the guest has
+  no card, so the properties are only visible after an install and a restart there. Check with
+  the same loop (`ioreg -l -w0 -c IOPCIDevice`, the shim node) and by starting Pirates.
+- Side finding from the same logs: Unreal Tournament 2004 crashed 2026-10-10 20:28 in
+  `_mesa_glthread_upload` (NULL) from `glDrawRangeElements` (a driver bug, not looked at yet).
+  Civilization IV's two crashes (disc check in `main`; corrupted stack) are not ours.

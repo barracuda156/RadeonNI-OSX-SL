@@ -99,8 +99,28 @@ RadeonNIAccel *RadeonNIAccel::withFramebuffer(RadeonNI *fb, IOService *provider)
 		accel->fShim = new RadeonNIAGPShim;
 		if (accel->fShim && accel->fShim->init(none) &&
 		    accel->fShim->attachToParent(provider, gIOServicePlane)) {
+			static const UInt32 noClass = 0;
+
 			accel->fShim->setName("RadeonNIAGPShim");
 			accel->fShim->setProperty("model", (void *)model, sizeof(model));
+			/*
+			 * The shim is an IOPCIDevice to anything that walks
+			 * the PCI devices, and programs read "class-code" of
+			 * each without checking (Sid Meier's Pirates!'s
+			 * ZonicLib crashed on the lack of it). A class that
+			 * is not a display, so that none takes it for a second
+			 * graphics card, and the real card's ids.
+			 */
+			accel->fShim->setProperty("class-code", (void *)&noClass,
+						  sizeof(noClass));
+			static const char *const ids[] = { "vendor-id", "device-id" };
+			for (unsigned i = 0; i < 2; i++) {
+				OSData *id = OSDynamicCast(OSData,
+						provider->getProperty(ids[i]));
+
+				if (id)
+					accel->fShim->setProperty(ids[i], id);
+			}
 			accel->fShim->registerService();
 		}
 		if (none)
