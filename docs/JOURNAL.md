@@ -6441,3 +6441,21 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
 - Not done: Mesa not rebuilt from this worktree (the shared `third_party` tree has newer
   `mesa/` and `gld/` than this branch; building here would overwrite it); engine context
   offsets and records of 10.5's GLEngine; the four new gld entries.
+
+## 2026-10-12: Leopard onto a G5 partition: Tiger will not let the whole disk be written
+
+- The G5's disk (250 GB) is mapped only to 32 GB (it was imaged from a 32 GB image): the rest
+  is unmapped. A partition map with a new `Apple_HFS` entry at block 67108864 and the volume
+  (50069424 blocks, from `images/leopard.qcow2`) was crafted and checked with `parted` on a
+  sparse copy; the map backup is `build/g5deploy/g5-map-backup.bin`.
+- Throughput to the G5: raw over ssh 28 MB/s (the G5's ssh decryption is the limit, not the
+  gigabit link); `gzip -1` in the stream 50 MB/s on data and 158 MB/s on zeros. Netcat pull
+  (G5 connects to the host, `nc | gunzip | dd`) is the way to send it.
+- **Negative: `dd` to `/dev/rdisk0` of the running 10.4.11 G5 fails with "Resource busy"** (the
+  mounted boot volume is a writable child of the whole disk), so neither the data nor the map
+  can be written while Tiger runs from that disk. Nothing was written (map and region checked
+  after). Needs the disk with nothing mounted: another boot volume (DVD Terminal), or a
+  read-only root. `bless --nextonly` is EFI-only, so there is no one-shot boot on this PowerPC.
+- The G5's NVRAM had lost the Open Firmware block (`use-nvramrc?` false, `nvramrc` empty; the
+  files under `/Library/RadeonNI` were intact). Re-enabled with `of-install.sh` (client and
+  block text as installed on 2026-10-09). Takes effect at the next boot.
