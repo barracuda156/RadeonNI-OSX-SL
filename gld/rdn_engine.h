@@ -7,10 +7,12 @@
  * Found with tools/guest/glctx_scan.c (docs/GLD-INTERFACE.md):
  *
  *   10.4.11 (Darwin 8): pointer to the application's table at rend+0x4680,
- *     driver table at rend+0x4698 (33 words), 684 entries in the table.
+ *     driver table at rend+0x4698 (33 words), 684 entries in the table;
+ *     gldCreateContext's sixth argument points rend+0x360.
  *   10.5.9 (Darwin 9): pointer to the application's table at rend+0x5c78,
  *     driver table at rend+0x5cc4 (42 words), 759 entries in the table
- *     (the 10.5 SDK's header declares 759).
+ *     (the 10.5 SDK's header declares 759); gldCreateContext's sixth
+ *     argument points rend+0x780 (0x56f7a0 - 0x56f020 on the G5).
  *
  * The application's table is followed in memory by CGLContextObj's `priv'
  * and `stak': a count that is too large corrupts them.
@@ -31,6 +33,7 @@ struct rdn_engine_layout {
 	unsigned disp_entries;	/* entries of the application's table */
 	unsigned table_entries;	/* words of the driver table */
 	int present;		/* index of "present" in it, -1: not known */
+	unsigned create_arg;	/* gldCreateContext's sixth argument: bytes into the engine context */
 };
 
 /* The largest application table of any layout. */
@@ -39,10 +42,10 @@ struct rdn_engine_layout {
 static inline const struct rdn_engine_layout *rdn_engine_layout(void)
 {
 	static const struct rdn_engine_layout tiger = {
-		"10.4", 0x4698, 0x18, 684, 33, 24
+		"10.4", 0x4698, 0x18, 684, 33, 24, 0x360
 	};
 	static const struct rdn_engine_layout leopard = {
-		"10.5", 0x5cc4, 0x4c, 759, 42, -1
+		"10.5", 0x5cc4, 0x4c, 759, 42, -1, 0x780
 	};
 	static int major = -1;
 

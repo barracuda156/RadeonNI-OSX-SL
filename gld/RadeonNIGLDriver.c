@@ -544,7 +544,7 @@ static void dump_parameter(const char *call, long parameter, long values)
 }
 
 /* gldCreateContext's sixth argument, less this, is the engine's context. */
-#define ENGINE_CTX_CREATE_ARG	0x360
+#define ENGINE_CTX_CREATE_ARG	(rdn_engine_layout() ? rdn_engine_layout()->create_arg : 0x360)
 
 /* Not more than this many detailed descriptions of a call that is frequent. */
 #define DETAILS_LOGGED	64
@@ -1516,9 +1516,9 @@ static long forward(int idx, long a, long b, long c, long d, long e, long f,
 	 * gldInitDispatch is given later).
 	 */
 	if (idx == IDX_gldCreateContext && ret == 0 && a && f &&
-	    !in_window_server() && early_takeover())
+	    rdn_engine_layout() && !in_window_server() && early_takeover())
 		rdn_mesa_context_engine(*(void **)a,
-					(char *)f - ENGINE_CTX_CREATE_ARG);
+					(char *)f - rdn_engine_layout()->create_arg);
 #endif
 	return ret;
 }

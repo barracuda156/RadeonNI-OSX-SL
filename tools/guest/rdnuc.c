@@ -8,6 +8,8 @@
  *                          the red, green and blue of every 8th pixel of that
  *                          part of the screen (what changes shows a flicker)
  *   rdnuc peek off [n]     print n words of video memory at aperture offset off
+ *   rdnuc find w [w2 ...]  count, and give the first offsets of, the 32-bit words w
+ *                          (as the CPU reads them) in the whole aperture
  *   rdnuc alloc            allocate, write, read back and free video memory
  *   rdnuc reg off [n]      print n registers from offset off of the register BAR
  *   rdnuc power [performance|boot [what]]
@@ -197,6 +199,32 @@ int main(int argc, char **argv)
 		for (i = 0; i < n; i++)
 			printf("%08x%s", (unsigned)aperture[off / 4 + i],
 			       i % 8 == 7 || i == n - 1 ? "\n" : " ");
+	} else if (!strcmp(cmd, "find") && argc > 2) {
+		/* Where in the aperture a program's colours ended up. */
+		unsigned long words = (unsigned long)info.aperture_size / 4, i;
+		int w, nw = argc - 2;
+		unsigned long count[8] = { 0 }, first[8][4];
+
+		if (nw > 8)
+			nw = 8;
+		for (i = 0; i < words; i++) {
+			uint32_t v = aperture[i];
+
+			for (w = 0; w < nw; w++)
+				if (v == (uint32_t)strtoul(argv[2 + w], NULL, 0)) {
+					if (count[w] < 4)
+						first[w][count[w]] = i * 4;
+					count[w]++;
+				}
+		}
+		for (w = 0; w < nw; w++) {
+			unsigned long k;
+
+			printf("%s: %lu words", argv[2 + w], count[w]);
+			for (k = 0; k < count[w] && k < 4; k++)
+				printf("  0x%lx", first[w][k]);
+			printf("\n");
+		}
 	} else if (!strcmp(cmd, "alloc")) {
 		int off[3], i, bad = 0;
 		kern_return_t kr;
