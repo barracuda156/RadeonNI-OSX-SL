@@ -61,3 +61,7 @@ _gldTerminateLibrary
 _gldTestMemoryPluginData
 _gldTestObject
 _gldUpdateDispatch
+_gldCreateProgram
+_gldDestroyProgram
+_gldObjectPurgeable
+_gldObjectUnpurgeable

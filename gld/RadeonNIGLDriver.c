@@ -69,7 +69,15 @@
 /* The entry of the driver's own table the engine calls to present. */
 #define DRIVER_TABLE_PRESENT	24
 
-/* The 62 entry points of a 10.4.11 PowerPC driver bundle. */
+/*
+ * The entry points of a PowerPC driver bundle: the 62 of 10.4.11 (one of
+ * them, gldRelatePipelineProgram, is not asked for by 10.5) and the four
+ * that 10.5.9's engine wants as well (gldCreateProgram, gldDestroyProgram,
+ * gldObjectPurgeable, gldObjectUnpurgeable). 10.5's GLEngine looks up all of
+ * the names and drops a plug-in that lacks one of them; 10.4.11 never asks
+ * for the four, and the software renderer under it has none, so on Tiger
+ * they only log "no such entry". See docs/GLD-INTERFACE.md, "Mac OS X 10.5".
+ */
 #define GLD_ENTRIES(X) \
 	X(gldAllocVertexBuffer) X(gldAttachDrawable) X(gldChoosePixelFormat) \
 	X(gldCompleteVertexBuffer) X(gldCreateBuffer) X(gldCreateContext) \
@@ -93,7 +101,9 @@
 	X(gldReclaimFramebuffer) X(gldReclaimTexture) \
 	X(gldReclaimVertexArray) X(gldRelatePipelineProgram) X(gldSetInteger) \
 	X(gldSetMemoryPluginData) X(gldTerminateLibrary) \
-	X(gldTestMemoryPluginData) X(gldTestObject) X(gldUpdateDispatch)
+	X(gldTestMemoryPluginData) X(gldTestObject) X(gldUpdateDispatch) \
+	X(gldCreateProgram) X(gldDestroyProgram) X(gldObjectPurgeable) \
+	X(gldObjectUnpurgeable)
 
 typedef long (*gld_fn)(long, long, long, long, long, long, long, long);
 

@@ -255,3 +255,49 @@ and `CGLDestroyPBuffer` hooked to give the memory back.
   the 33-entry driver table, and every call a window or full-screen
   drawable brings.
 - What the return values 2 and 4 above mean.
+
+## Mac OS X 10.5.9 (2026-10-12, static, from Leopard's GLEngine; nothing run with a card)
+
+Method: `scripts/gl-study.sh` (Apple's ATIRadeon9700 stack on both OS versions),
+`otool -arch ppc -tV` of `GLEngine.bundle/GLEngine` (10.5.9, ppc slice), the
+loader read in `_glepAddPlugin`'s neighbourhood (file offsets 0x11d0 to 0x1450).
+`[V]` seen in the disassembly, `[I]` inference.
+
+- **Loading a plug-in [V].** The engine `dlopen`s the bundle and then
+  `dlsym`s, by name: one entry for the library init (called with five
+  words from its own globals), `gldGetVersion` (four out values; the engine
+  insists on 2, 4, 0xb in the first three, and masks the fourth with
+  0xff00 as it files the plug-in under it: the same as 10.4.11, our
+  `gldGetVersion` forwards to the software renderer which answers 2, 4, 11,
+  0x400), and then **64 names in a fixed order**, each stored into the
+  plug-in record at `record + 0x110 + 4*i` (table of name pointers at
+  0x17c01c, 64 entries). **A name that `dlsym` cannot find makes the engine
+  call `glepPluginDisconnect` and drop the plug-in.** 10.4.11 bundles have
+  62 names; 10.5.9 asks for 66 (64 in the table plus `gldInitializeLibrary`
+  and `gldTerminateLibrary`): new are `gldCreateProgram`, `gldDestroyProgram`,
+  `gldObjectPurgeable`, `gldObjectUnpurgeable`; `gldRelatePipelineProgram` is
+  not asked for. Our bundle now exports all 66 (the four forward to the
+  software renderer like every entry; on 10.4.11 they are never looked up).
+- **Calls [V].** The engine's renderer array is at `ctx + 0x7208`, stride
+  0x338, count in the byte at `ctx + 0x6ec2`; a renderer record starts with
+  the plug-in record pointer and holds the driver's own context at
+  `record - 0x330` (`ctx + 0x6ed8` for renderer 0). A call is
+  `plugin->table[i](driverCtx, ...)`. Slots: `0x110 + 4*i` for the order in
+  `scripts/gl-engine-gldmap.py` (its own window heuristic printed 0x114;
+  the loader code settles 0x110; `gldModifyPipelineProgram` at 0x190 is
+  called from the pipeline program modify path, which fits).
+- **New entries' arguments [V for the shape, I for names]:**
+  `gldObjectPurgeable(driverCtx, type, object, option)` with type 1 or 3 and
+  option one of the GL_APPLE_object_purgeable enums (0x8a19 released,
+  0x8a1a volatile, 0x8a1b retained); `gldObjectUnpurgeable(driverCtx, type,
+  object, option, &result)` writes a byte result (0 = contents kept);
+  `gldCreateProgram(driverCtx, &out, arg, &info20)` per renderer with a
+  20-byte record; `gldDestroyProgram(driverCtx, program)`.
+- **Not looked at yet:** the 10.5 engine's equivalents of the Tiger offsets
+  `rend + 0x4698` (driver's table) and `rend + 0x4680` (`disp` pointer): the
+  structures moved (the renderer array above is new to us), so those
+  offsets are certainly not 10.5's and the dispatch replacement must find
+  them again; the hook on `cglsSetInteger` fails its twelve-word check on
+  10.5.9 and leaves the function alone; the 2D plug-in (`GA`) and the user
+  client class names (`IOATIGLContext` against Tiger's `IOATIR300GLContext`)
+  also differ.

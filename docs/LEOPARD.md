@@ -63,6 +63,11 @@ What is known by running things in the guest:
 - **The Tiger bundle loads.** The host-built `RadeonNIGLDriver.dylib`
   (Mesa inside, 10.4u SDK) `dlopen`s on 10.5.9: its imports (libz, IOKit,
   libSystem) exist, and 62 of Leopard's 66 `gld*` names are present.
+- **Update, same day:** the engine drops a plug-in missing any of the 66
+  names, so with 62 the bundle would have been refused. The four are in
+  the entry list now (`gld/RadeonNIGLDriver.c`, `gld/rdn_gld.exports`):
+  66 of 66 `dlsym`, on 10.5.9 and on 10.4.11. Details in
+  `docs/GLD-INTERFACE.md`, "Mac OS X 10.5.9".
 - **`gld*` differences.** Apple's X1000 driver on 10.5 exports 66; the
   bundle's table has 63 (62 of them in Leopard's list). New on 10.5:
   `gldCreateProgram`, `gldDestroyProgram`, `gldObjectPurgeable`,
