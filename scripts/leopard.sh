@@ -10,6 +10,10 @@
 #                                fetched into third_party/leopard-exports)
 #   LEOPARD_NATIVE=1 scripts/leopard.sh build|check|package
 #                                the same inside the Leopard guest (Xcode 3.1.4)
+#   scripts/leopard.sh package-accel   as package, plus the 3D engine's userland
+#                                (OpenGL bundle, 2D plug-in), the microcode and
+#                                the file LEOPARD-ACCEL that lets install.sh
+#                                take --accel on 10.5. EXPERIMENTAL.
 #   scripts/leopard.sh package   build/RadeonNI-10.5-<date>-<commit>.zip:
 #                                kext, install.sh, LICENSE, README, the file
 #                                LEOPARD that makes install.sh accept 10.5
@@ -124,7 +128,25 @@ package() {
     touch "$stage/LEOPARD"
     echo "$rev (10.5 framebuffer-only build)" > "$stage/VERSION"
     cp "$root/g5/LEOPARD-README.txt" "$stage/README.txt"
-    zip=$root/build/$(basename "$stage").zip
+    if [ "${ACCEL:-0}" = 1 ]; then
+        touch "$stage/LEOPARD-ACCEL"
+        echo "$rev (10.5 EXPERIMENTAL accelerator build)" > "$stage/VERSION"
+        # 2D plug-in: built in the Leopard guest with the 10.4u SDK, as on Tiger
+        tar -C "$root" -cf - ga hw | gssh 'rm -rf ~/osx-gpu-ga && mkdir -p ~/osx-gpu-ga && tar -C ~/osx-gpu-ga -xf - && cd ~/osx-gpu-ga/ga && make 2>&1 | tail -2'
+        gssh 'tar -C ~/osx-gpu-ga/ga/build -cf - RadeonNIGA.plugin' | tar -C "$stage" -xf -
+        [ -f "$stage/RadeonNIGA.plugin/Contents/MacOS/RadeonNIGA" ] || { echo "no 2D plug-in came back" >&2; exit 1; }
+        # OpenGL bundle: Mesa inside, from scripts/gld-relink.py (gld/ of this checkout)
+        python3 -I "$root/scripts/gld-relink.py" > /dev/null
+        mkdir -p "$stage/RadeonNIGLDriver.bundle/Contents/MacOS"
+        cp "$root/gld/Info.plist" "$stage/RadeonNIGLDriver.bundle/Contents/Info.plist"
+        cp "$root/build/relink/RadeonNIGLDriver.dylib" "$stage/RadeonNIGLDriver.bundle/Contents/MacOS/RadeonNIGLDriver"
+        chmod 755 "$stage/RadeonNIGLDriver.bundle/Contents/MacOS/RadeonNIGLDriver"
+        "$root/scripts/fetch-firmware.sh" > /dev/null
+        cp "$root/firmware/TURKS_pfp.bin" "$root/firmware/TURKS_me.bin" "$root/firmware/TURKS_mc.bin" \
+           "$root/firmware/LICENSE.radeon" "$stage/"
+    fi
+    [ "${ACCEL:-0}" = 1 ] && stage_name=$(basename "$stage")-accel || stage_name=$(basename "$stage")
+    zip=$root/build/$stage_name.zip
     rm -f "$zip"
     # The host may have no zip; Python writes it, with the files' modes.
     python3 -I - "$out/pkg" "$(basename "$stage")" "$zip" <<'PY'
@@ -157,5 +179,6 @@ case "${1:-}" in
 build) build ;;
 check) check ;;
 package) package ;;
+package-accel) ACCEL=1 package ;;
 *) sed -n 2,26p "$0"; exit 1 ;;
 esac

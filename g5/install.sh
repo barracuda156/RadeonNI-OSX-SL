@@ -24,7 +24,8 @@
 # first run on a Mac the driver has not been seen on.
 #
 # Mac OS X 10.5: only with a package that has the file LEOPARD (see
-# scripts/leopard.sh), without --accel. That build was never run there.
+# scripts/leopard.sh). The framebuffer runs there (2026-10-12). --accel only
+# with a package that also has the file LEOPARD-ACCEL: experimental.
 #
 # Nothing is written to the card. To undo: sudo ./uninstall.sh
 #
@@ -66,10 +67,16 @@ case "$(sw_vers -productVersion)" in
 10.5*)
     [ -f "$here/LEOPARD" ] ||
         fail "this package is built for Mac OS X 10.4; this is $(sw_vers -productVersion). The 10.5 package has a file LEOPARD."
-    [ "$accel" = 0 ] ||
-        fail "--accel is for Mac OS X 10.4 only; on 10.5 the driver is a plain framebuffer"
-    echo "Mac OS X $(sw_vers -productVersion): EXPERIMENTAL framebuffer-only build, never run on 10.5 yet."
-    echo "Start with: sudo sh ./install.sh --check   (writes nothing)" ;;
+    if [ "$accel" = 1 ]; then
+        [ -f "$here/LEOPARD-ACCEL" ] ||
+            fail "--accel on 10.5 needs the package built for it (a file LEOPARD-ACCEL, scripts/leopard.sh package-accel)"
+        echo "Mac OS X $(sw_vers -productVersion): EXPERIMENTAL accelerator. The framebuffer runs on 10.5; the"
+        echo "3D engine, the OpenGL bundle and the 2D plug-in have never run there. If the Mac does not"
+        echo "finish booting, see the end of this script's output for the way back."
+    else
+        echo "Mac OS X $(sw_vers -productVersion): framebuffer-only build."
+        echo "Start with: sudo sh ./install.sh --check   (writes nothing)"
+    fi ;;
 *) fail "this kext is built for Mac OS X 10.4; this is $(sw_vers -productVersion)" ;;
 esac
 [ "$(uname -p)" = powerpc ] || fail "this kext is PowerPC only"
