@@ -1,0 +1,96 @@
+#!/bin/busybox sh
+# Deployment initramfs for the G5 (see scripts/g5-netboot/README.md).
+#
+# Brings up the network and keeps connecting back to the host named on the
+# kernel command line (rdn.host=, rdn.port=): the host gets a root shell and
+# does the work. Nothing listens on the G5. If the host never answers within
+# rdn.wait seconds, the boot device goes back to the normal one and the
+# machine restarts.
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+# /proc first: busybox --install finds itself through /proc/self/exe
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+/bin/busybox --install -s /bin
+exec </dev/console >/dev/console 2>&1
+mkdir -p /tmp /root /var/run /usr/share/udhcpc
+
+say() { echo "rdn: $*"; echo "rdn: $*" > /dev/kmsg; }
+
+HOST=; PORT=9100; WAIT=900
+for w in $(cat /proc/cmdline); do
+    case "$w" in
+    rdn.host=*) HOST=${w#rdn.host=} ;;
+    rdn.port=*) PORT=${w#rdn.port=} ;;
+    rdn.wait=*) WAIT=${w#rdn.wait=} ;;
+    esac
+done
+say "starting; host $HOST:$PORT, failsafe after ${WAIT}s"
+
+# modules, in dependency order (written when the image was built)
+while read -r m; do
+    insmod "/lib/modules/$(uname -r)/$m" 2>/dev/null && say "loaded $m"
+done < /modules.load
+sleep 2
+
+# network
+cat > /usr/share/udhcpc/default.script <<'EOF'
+#!/bin/sh
+case "$1" in
+bound|renew)
+    ifconfig "$interface" "$ip" netmask "${subnet:-255.255.255.0}" up
+    [ -n "$router" ] && route add default gw "${router%% *}" 2>/dev/null
+    ;;
+esac
+exit 0
+EOF
+chmod +x /usr/share/udhcpc/default.script
+up=
+for i in 1 2 3 4 5 6; do
+    for d in /sys/class/net/*; do
+        n=${d##*/}
+        [ "$n" = lo ] && continue
+        [ -e "$d" ] || continue
+        ifconfig "$n" up 2>/dev/null
+        sleep 1
+        say "trying DHCP on $n"
+        if udhcpc -i "$n" -n -q -t 5 -T 2 -s /usr/share/udhcpc/default.script >/dev/null 2>&1; then
+            up=$n
+            break 2
+        fi
+    done
+done
+if [ -z "$up" ]; then
+    n=$(ls /sys/class/net | grep -v '^lo$' | head -1)
+    say "no DHCP; static on $n"
+    ifconfig "$n" 192.168.1.127 netmask 255.255.255.0 up
+    route add default gw 192.168.1.1
+    up=$n
+fi
+say "network: $(ifconfig "$up" | grep 'inet addr')"
+
+# the shell the host works through
+cat > /bin/rdnsh <<'EOF'
+#!/bin/sh
+touch /tmp/connected
+exec /bin/sh -i
+EOF
+chmod +x /bin/rdnsh
+
+# failsafe: no host in WAIT seconds -> the normal boot device, restart
+(
+    sleep "$WAIT"
+    if [ ! -e /tmp/connected ]; then
+        say "no host; restoring boot-device and restarting"
+        nvram --update-config 'boot-device=hd:,\\:tbxi' 2>&1
+        sync
+        reboot -f
+    fi
+) &
+
+while :; do
+    say "connecting to $HOST:$PORT"
+    netcat -e /bin/rdnsh "$HOST" "$PORT"
+    sleep 3
+done
