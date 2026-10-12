@@ -6526,3 +6526,26 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   `launchctl bsexec` to loginwindow/WindowServer now fails ("Operation not supported on
   socket") where it worked before the restart, so the test programs need a logged-in GUI
   session (osascript into Terminal).
+
+## 2026-10-12 (afternoon, later): 10.5 desktop with the accelerator; `Surfaces` is the bad part
+
+- Autologin on the Leopard volume: `defaults write /Library/Preferences/com.apple.loginwindow
+  autoLoginUser tiger` and `/etc/kcpassword` (the password XOR the usual 11-byte key, padded
+  to 12). Worked on the next restart (1 user, Finder up after 21 s).
+- With the accelerator on and `Surfaces` true (what the package wrote), the desktop had gaps
+  (user): the menu bar's Apple icon missing at the top-left and drawn at the bottom-left
+  (y = 1058 = 1080 - 22), a grey strip along the bottom edge, a black patch under the iPhoto
+  Dock icon. `screencapture` showed the same, `rdnuc grab` too. The log: one surface client
+  per window, tiny ones included (`setIDMode`, `setShape` at 0,0 with the window's size).
+- With `Surfaces` false (hand-edited in the installed kext's personality, `touch`, restart)
+  the desktop is right: Apple icon at the top-left, no strip, the Dock complete with its
+  glass floor and reflections. `install.sh --accel` now writes `Surfaces` false when the
+  package has the file LEOPARD.
+- `system_profiler SPDisplaysDataType` with the accelerator on and Surfaces off: `RadeonNI`,
+  1920x1080 32 bpp, `Core Image: Software`, `Quartz Extreme: Not Supported`. CGL lists two
+  renderers: 0x21a00 (ours, accelerated, 256 MB) and 0x20400 (software). So the engine
+  loaded our bundle on 10.5.9, but the window server does not composite through it yet.
+- Next: what decides Quartz Extreme and Core Image support in 10.5's window server (the
+  surface path with `Surfaces` true opened a client per window; its placement semantics
+  differ), and the first GL client through the bundle (needs a GUI session; `open -a
+  Terminal script.command` works from ssh, `launchctl bsexec` no longer does).

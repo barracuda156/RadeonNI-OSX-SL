@@ -179,7 +179,10 @@ perl -MMIME::Base64 -e '
         }
         $extra .= "\t\t\t<key>AccelCaps</key>\n\t\t\t<integer>3</integer>\n";
         $extra .= "\t\t\t<key>AGPShim</key>\n\t\t\t<integer>3</integer>\n";
-        $extra .= "\t\t\t<key>Surfaces</key>\n\t\t\t<true/>\n";
+        # The kext's window surfaces are for 10.4's window server: on 10.5.9 they put
+        # some windows (the menu bar's Apple, parts of the Dock) at the wrong place.
+        my $surfaces = -f "$dir/LEOPARD" ? "false" : "true";
+        $extra .= "\t\t\t<key>Surfaces</key>\n\t\t\t<$surfaces/>\n";
         $extra .= "\t\t\t<key>GAPlugin</key>\n\t\t\t<true/>\n";
         $extra .= "\t\t\t<key>HWCursor</key>\n\t\t\t<true/>\n" if $hwcursor;
     }
