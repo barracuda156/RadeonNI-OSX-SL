@@ -11,10 +11,11 @@ How to read it and how to report: `data/compat/README.md`.
 | Doom 3 (demo) | Playable | Doom 3 Demo.app | 1920x1080 | 48 (6600 LE 26) |  | 51 fps against 19 on the GeForce 6600 LE. At ultra with 4 samples: 20.9 and 21.7 fps against 5.0 and 3.6. |
 | Quake 4 | Perfect | Quake 4.app, 1.2 (build 2386, Universal Binary; from the patch's file name) | 1920x1080 | 47.3 | glthread on |  |
 | Quake III Arena | Playable | Quake3.app (Mac port, installed on the G5) | 1920x1080 | 149 |  | Intro video sometimes does not play. |
+| Sid Meier's Pirates (2004) | Playable | Sid Meier's Pirates.app | 1920x1080 |  |  |  |
 | Unreal Tournament 2004 | Perfect | Unreal Tournament 2004.app, 3236.1 (from the bundle's Info.plist) | 1920x1080 | 40 | glthread off | glthread gave no measurable gain in the benchmark (41.5 and 55.7 fps on in two runs with different camera paths, 40.4 and 40.5 off) and made the game's client-array draws pile up about 730 MB of 1 MB upload buffers, which ran the allocator dry (5,402 failed allocations in three minutes, and the earlier crash) |
 | World of Warcraft | Playable | 1.12 | 1920x1080 | 165 |  | Needs the bundle's GL_APPLE_flush_buffer_range (default) to be fast. |
 
-Tiers: Perfect 2, Playable 4
+Tiers: Perfect 2, Playable 5
 
 ## Details
 
@@ -59,6 +60,15 @@ API: OpenGL 1.x fixed function
 **2026-10-06: Playable**
 - Mode: fullscreen
 - Reproduce: timedemo 1; demo four
+
+### Sid Meier's Pirates (2004)
+Firaxis Games / Feral Interactive (Mac) · 2008 · Gamebryo
+
+API: OpenGL 1.x, ARB vertex/fragment programs
+
+**2026-10-11: Playable**
+- Driver: glthread on
+- Mode: fullscreen
 
 ### Unreal Tournament 2004
 Epic Games · 2004 · Unreal Engine 2

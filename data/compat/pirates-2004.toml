@@ -1,0 +1,13 @@
+name = "Sid Meier's Pirates (2004)"
+publisher = "Firaxis Games / Feral Interactive (Mac)"
+year = 2008
+engine = "Gamebryo"
+api = ["OpenGL 1.x", "ARB vertex/fragment programs"]
+
+[[report]]
+date = "2026-10-11"
+tier = "playable"
+version = "Sid Meier's Pirates.app"
+driver = "glthread on"
+resolution = "1920x1080"
+mode = "fullscreen"
