@@ -33,7 +33,9 @@ fetch() {
     mkdir -p "x/$1"
     [ -e "x/$1/.PKGINFO" ] || bsdtar -xf "pkgs/$f" -C "x/$1" 2>/dev/null || true
 }
-for p in linux-ppc64 mkinitcpio-busybox glibc zlib libxcrypt gnu-netcat powerpc-utils grub; do
+for p in linux-ppc64 mkinitcpio-busybox glibc zlib libxcrypt gnu-netcat powerpc-utils grub \
+         util-linux util-linux-libs systemd-libs kmod zstd xz openssl brotli \
+         openssh pam krb5 audit e2fsprogs keyutils libcap-ng; do
     fetch "$p"
 done
 cp "x/linux-ppc64/usr/lib/modules/$VER/vmlinuz" vmlinuz
@@ -87,9 +89,76 @@ for f in x/glibc/usr/lib/*.so*; do
     [ -f "$f" ] && cp -L "$f" "$R/lib/"
 done
 cp -L x/zlib/usr/lib/libz.so.1 x/libxcrypt/usr/lib/libcrypt.so.2 "$R/lib/"
+# mount and insmod are not in mkinitcpio's busybox: util-linux's mount and
+# kmod, with the libraries they pull in
+for l in util-linux-libs/usr/lib/libmount.so.1 util-linux-libs/usr/lib/libblkid.so.1 \
+         systemd-libs/usr/lib/libsystemd.so.0 kmod/usr/lib/libkmod.so.2 \
+         zstd/usr/lib/libzstd.so.1 xz/usr/lib/liblzma.so.5 openssl/usr/lib/libcrypto.so.3 \
+         brotli/usr/lib/libbrotlienc.so.1 brotli/usr/lib/libbrotlidec.so.1 brotli/usr/lib/libbrotlicommon.so.1; do
+    cp -L "x/$l" "$R/lib/"
+done
+cp x/util-linux/usr/bin/mount "$R/bin/mount"
+cp x/kmod/usr/bin/kmod "$R/bin/kmod"
+for a in insmod modprobe lsmod rmmod depmod; do ln -s kmod "$R/bin/$a"; done
 cp x/mkinitcpio-busybox/usr/lib/initcpio/busybox "$R/bin/busybox"
 cp "$(find x/gnu-netcat -name netcat -type f | head -1)" "$R/bin/netcat"
 cp x/powerpc-utils/usr/bin/nvram "$R/bin/nvram"
+
+# sshd (key login only) and the libraries it pulls in, whatever package has them
+mkdir -p "$R/usr/bin" "$R/lib/ssh" "$R/etc/ssh" "$R/root/.ssh" "$R/var/empty" "$R/dev/pts" "$R/usr/share/empty.sshd"
+cp x/openssh/usr/bin/sshd x/openssh/usr/bin/ssh-keygen "$R/usr/bin/"
+cp x/openssh/usr/lib/ssh/sshd-session x/openssh/usr/lib/ssh/sshd-auth x/openssh/usr/lib/ssh/sftp-server "$R/lib/ssh/"
+python3 -I - "$N" "$R" <<'PY'
+import glob, os, re, shutil, subprocess, sys
+N, R = sys.argv[1:]
+libs = {}
+for p in glob.glob(N + '/x/*/usr/lib/*.so*'):
+    libs.setdefault(os.path.basename(p), p)
+def needed(f):
+    out = subprocess.run(['readelf', '-d', f], capture_output=True, text=True).stdout
+    return re.findall(r'NEEDED.*\[(.*?)\]', out)
+todo = [R + '/usr/bin/sshd', R + '/usr/bin/ssh-keygen'] + glob.glob(R + '/lib/ssh/*')
+done, missing = set(), set()
+while todo:
+    f = todo.pop()
+    for n in needed(f):
+        if n in done or n in missing or os.path.exists(R + '/lib/' + n):
+            continue
+        p = libs.get(n)
+        if not p:
+            missing.add(n)
+            continue
+        shutil.copy(os.path.realpath(p), R + '/lib/' + n)
+        done.add(n)
+        todo.append(R + '/lib/' + n)
+print('sshd libraries copied:', len(done), 'missing:', sorted(missing))
+PY
+cat > "$R/etc/ssh/sshd_config" <<'EOF'
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+UsePAM no
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys
+StrictModes no
+PrintMotd no
+SetEnv PATH=/bin:/sbin:/usr/bin:/usr/sbin
+Subsystem sftp /usr/lib/ssh/sftp-server
+EOF
+printf 'root:*:0:0:root:/root:/bin/sh\nsshd:*:74:74:sshd:/var/empty:/bin/false\nnobody:*:65534:65534:nobody:/var/empty:/bin/false\n' > "$R/etc/passwd"
+printf 'root:x:0:\nsshd:x:74:\nnobody:x:65534:\n' > "$R/etc/group"
+printf 'passwd: files\ngroup: files\nhosts: files\n' > "$R/etc/nsswitch.conf"
+printf '/bin/sh\n' > "$R/etc/shells"
+# who may log in: the rescue key, the project's key and this user's own keys
+: > "$R/root/.ssh/authorized_keys"
+for k in "$root/private/ssh/g5rescue.pub" "$root/private/ssh/tiger_rsa.pub" "$HOME"/.ssh/id_*.pub; do
+    [ -f "$k" ] && cat "$k" >> "$R/root/.ssh/authorized_keys"
+done
+chmod 700 "$R/root" "$R/root/.ssh"
+echo "authorized keys: $(wc -l < "$R/root/.ssh/authorized_keys")"
 chmod 755 "$R"/bin/*
 while read -r p; do
     mkdir -p "$R/lib/modules/$VER/$(dirname "$p")"
@@ -119,5 +188,5 @@ for m in sorted(dep):
     visit(m)
 open(out, 'w').write('\n'.join(order) + '\n')
 PY
-(cd "$R" && find . -print0 | cpio --null -o -H newc --quiet | gzip -9) > "$N/initrd.img"
+(cd "$R" && find . -print0 | cpio --null -o -H newc -R 0:0 --quiet | gzip -9) > "$N/initrd.img"
 ls -la "$N/vmlinuz" "$N/initrd.img"

@@ -1,0 +1,7 @@
+echo CONNECTED; uname -a
+ls /sys/class/net; ifconfig | head -8
+ls -la /dev/sd* /dev/vd* /dev/hd* 2>&1 | head
+cat /sys/block/vda/size /sys/block/sda/size 2>&1
+nvram --print-config=boot-device 2>&1 | head -3
+dmesg | tail -12
+echo DONE

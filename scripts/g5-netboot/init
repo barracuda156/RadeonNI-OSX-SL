@@ -1,17 +1,15 @@
 #!/bin/busybox sh
-# Deployment initramfs for the G5 (see scripts/g5-netboot/README.md).
+# Rescue initramfs for the G5 (see scripts/g5-netboot/README.md).
 #
-# Brings up the network and keeps connecting back to the host named on the
-# kernel command line (rdn.host=, rdn.port=): the host gets a root shell and
-# does the work. Nothing listens on the G5. If the host never answers within
-# rdn.wait seconds, the boot device goes back to the normal one and the
-# machine restarts.
+# Brings up the network and starts sshd (key login only, root). If nobody
+# has logged in within rdn.wait seconds (kernel command line, default 900),
+# the boot device goes back to the normal one and the machine restarts.
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
 # /proc first: busybox --install finds itself through /proc/self/exe
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev
+/bin/mount -t proc proc /proc
+/bin/mount -t sysfs sysfs /sys
+/bin/mount -t devtmpfs devtmpfs /dev
 /bin/busybox --install -s /bin
 exec </dev/console >/dev/console 2>&1
 mkdir -p /tmp /root /var/run /usr/share/udhcpc
@@ -70,27 +68,24 @@ if [ -z "$up" ]; then
 fi
 say "network: $(ifconfig "$up" | grep 'inet addr')"
 
-# the shell the host works through
-cat > /bin/rdnsh <<'EOF'
-#!/bin/sh
-touch /tmp/connected
-exec /bin/sh -i
-EOF
-chmod +x /bin/rdnsh
+# sshd
+/bin/mount -t devpts devpts /dev/pts 2>/dev/null
+say "ssh-keygen -A: $(ssh-keygen -A 2>&1 | head -c 300)"
+say "sshd -t: $(/usr/bin/sshd -t -f /etc/ssh/sshd_config 2>&1 | head -c 400)"
+/usr/bin/sshd -f /etc/ssh/sshd_config -E /tmp/sshd.log && say "sshd started" || say "sshd FAILED: $(head -c 400 /tmp/sshd.log)"
+say "ssh root@$(ifconfig "$up" | sed -n 's/.*inet addr:\([0-9.]*\).*/\1/p')"
 
-# failsafe: no host in WAIT seconds -> the normal boot device, restart
-(
-    sleep "$WAIT"
-    if [ ! -e /tmp/connected ]; then
-        say "no host; restoring boot-device and restarting"
-        nvram --update-config 'boot-device=hd:,\\:tbxi' 2>&1
-        sync
-        reboot -f
+# failsafe: nobody logs in within WAIT seconds -> the normal boot device, restart
+t=0
+while [ "$t" -lt "$WAIT" ]; do
+    if netstat -tn 2>/dev/null | grep -q 'ESTABLISHED' ; then
+        say "someone is logged in; failsafe off"
+        exec sleep 100000000
     fi
-) &
-
-while :; do
-    say "connecting to $HOST:$PORT"
-    netcat -e /bin/rdnsh "$HOST" "$PORT"
-    sleep 3
+    sleep 5
+    t=$((t + 5))
 done
+say "nobody logged in; restoring boot-device and restarting"
+nvram --update-config 'boot-device=hd:,\\:tbxi' 2>&1
+sync
+reboot -f
