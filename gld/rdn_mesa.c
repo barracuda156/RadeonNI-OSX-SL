@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "rdn_engine.h"
 #include "rdn_glue.h"
 #include "rdn_target.h"
 
@@ -38,15 +39,19 @@
  * this offset in it, and six words before that table is a pointer to the
  * application's GLIFunctionDispatch. See docs/GLD-INTERFACE.md.
  */
-#define ENGINE_CTX_TABLE_OFFSET	0x4698
-#define APP_DISPATCH_BACK	0x18
 /*
- * The application's table in 10.4.11 has 684 entries; the 10.4u SDK's
+ * Where the engine keeps its driver table and the pointer to the
+ * application's table, and how long that table is, depend on the system:
+ * gld/rdn_engine.h. On a system that is not known the engine is left alone.
+ *
+ * On 10.4.11 the application's table has 684 entries; the 10.4u SDK's
  * header declares 686. The CGL context's private fields follow the table,
  * so writing the last two entries corrupts them (seen as a crash in
- * CGLDestroyContext).
+ * CGLDestroyContext). On 10.5.9 it has 759, as its header does.
  */
-#define APP_DISPATCH_ENTRIES	684
+#define ENGINE_CTX_TABLE_OFFSET	(engine->table_off)
+#define APP_DISPATCH_BACK	(engine->disp_back)
+#define APP_DISPATCH_ENTRIES	(engine->disp_entries)
 
 /* gldAttachDrawable's type for a window: kCGLPFAWindow. */
 #define DRAWABLE_WINDOW		0x50
@@ -1058,9 +1063,13 @@ static int mesa_ready(void)
 
 static int install(struct context *c, void *engine_table, const char *when)
 {
-	void *app_table = *(void **)((char *)engine_table - APP_DISPATCH_BACK);
+	const struct rdn_engine_layout *engine = rdn_engine_layout();
+	void *app_table;
 	unsigned n;
 
+	if (!engine)
+		return 0;	/* a system whose engine is not known: leave it alone */
+	app_table = *(void **)((char *)engine_table - APP_DISPATCH_BACK);
 	if (!app_table || !mesa_ready())
 		return 0;
 	c->rend = (char *)engine_table - ENGINE_CTX_TABLE_OFFSET;
@@ -1082,11 +1091,11 @@ static int install(struct context *c, void *engine_table, const char *when)
 	}
 	if (c->dispatched && getenv("RDN_GLD_MASTER")) {
 		/* Experiment: which entries has the engine taken back? */
-		static void *before[APP_DISPATCH_ENTRIES];
+		static void *before[RDN_MAX_DISP_ENTRIES];
 		void **t = app_table;
 		unsigned i, changed = 0, first = 0;
 
-		memcpy(before, t, sizeof(before));
+		memcpy(before, t, APP_DISPATCH_ENTRIES * sizeof(void *));
 		rdn_dispatch_install(app_table, APP_DISPATCH_ENTRIES);
 		for (i = 0; i < APP_DISPATCH_ENTRIES; i++)
 			if (before[i] != t[i] && !changed++)
@@ -1171,7 +1180,9 @@ void rdn_mesa_early(void *gld_ctx)
 	 */
 	if (!c || !c->early_rend || c->type)
 		return;
-	install(c, (char *)c->early_rend + ENGINE_CTX_TABLE_OFFSET, "before a drawable");
+	if (rdn_engine_layout())
+		install(c, (char *)c->early_rend + rdn_engine_layout()->table_off,
+			"before a drawable");
 }
 
 void rdn_make_current(void *rend)

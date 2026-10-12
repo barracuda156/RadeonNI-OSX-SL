@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recompile gld/RadeonNIGLDriver.c and relink the finished Mesa bundle.
+"""Recompile gld/RadeonNIGLDriver.c, rdn_mesa.c and rdn_hook.c and relink the finished Mesa bundle.
 
   scripts/gld-relink.py            -> build/relink/RadeonNIGLDriver.dylib
 
@@ -34,34 +34,38 @@ def ninja_commands():
 
 
 cmds = ninja_commands()
-comp = [c for c in cmds if 'gld_RadeonNIGLDriver.c.o' in c and ' -c ' in c][-1]
 link = cmds[-1]
-obj = os.path.join(out, 'gld_RadeonNIGLDriver.c.o')
-
-# compile: this checkout's source and headers first, object into out/
-parts = shlex.split(comp)
-res = []
-i = 0
-while i < len(parts):
-    a = parts[i]
-    if a == '-o':
-        res += ['-o', obj]
-        i += 2
-        continue
-    if a in ('-MF', '-MQ'):
-        i += 2
-        continue
-    if a == '-MD':
+# the objects built from files of this checkout's gld/
+OBJECTS = ['gld_RadeonNIGLDriver.c', 'gld_rdn_mesa.c', 'gld_rdn_hook.c']
+compile_cmds = []
+objs = {}
+for name in OBJECTS:
+    comp = [c for c in cmds if name + '.o' in c and ' -c ' in c][-1]
+    obj = os.path.join(out, name + '.o')
+    objs[name + '.o'] = obj
+    parts = shlex.split(comp)
+    res = []
+    i = 0
+    while i < len(parts):
+        a = parts[i]
+        if a == '-o':
+            res += ['-o', obj]
+            i += 2
+            continue
+        if a in ('-MF', '-MQ'):
+            i += 2
+            continue
+        if a == '-MD':
+            i += 1
+            continue
+        if a.endswith('gld/' + name[4:]):
+            res.append(os.path.join(root, 'gld', name[4:]))
+            i += 1
+            continue
+        res.append(a)
         i += 1
-        continue
-    if a.endswith('gld/RadeonNIGLDriver.c'):
-        res.append(os.path.join(root, 'gld', 'RadeonNIGLDriver.c'))
-        i += 1
-        continue
-    res.append(a)
-    i += 1
-res.insert(1, '-I' + os.path.join(root, 'gld'))
-compile_cmd = ' '.join(shlex.quote(a) for a in res)
+    res.insert(1, '-I' + os.path.join(root, 'gld'))
+    compile_cmds.append(' '.join(shlex.quote(a) for a in res))
 
 lparts = shlex.split(link)
 lres = []
@@ -73,13 +77,15 @@ while i < len(lparts):
                  '-Wl,-exported_symbols_list,' + os.path.join(root, 'gld', 'rdn_gld.exports')]
         i += 2
         continue
-    if a.endswith('gld_RadeonNIGLDriver.c.o'):
-        lres.append(obj)
+    swapped = [o for o in objs if a.endswith(o)]
+    if swapped:
+        lres.append(objs[swapped[0]])
         i += 1
         continue
     lres.append(a)
     i += 1
 link_cmd = ' '.join(shlex.quote(a) for a in lres)
+compile_cmd = '\n'.join(compile_cmds)
 
 script = os.path.join(out, 'relink.sh')
 with open(script, 'w') as f:

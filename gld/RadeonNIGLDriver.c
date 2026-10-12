@@ -67,7 +67,6 @@
 #define RDN_REPORTED_MEMORY	(256ul << 20)
 
 /* The entry of the driver's own table the engine calls to present. */
-#define DRIVER_TABLE_PRESENT	24
 
 /*
  * The entry points of a PowerPC driver bundle: the 62 of 10.4.11 (one of
@@ -158,6 +157,7 @@ static int log_all;
 
 #ifdef RDN_MESA
 #include <stdarg.h>
+#include "rdn_engine.h"
 #include "rdn_glue.h"
 
 int rdn_logging;
@@ -679,8 +679,6 @@ static void take_over(GLIFunctionDispatch *disp)
  * Experiment: RDN_GLD_SCAN=<hex value> looks for that word in the engine's
  * context, which the table given to gldInitDispatch lies inside.
  */
-#define ENGINE_CTX_TABLE_OFFSET	0x4698
-#define APP_DISPATCH_BACK	0x18
 #define ENGINE_CTX_SCAN_BYTES	0x1a000
 
 static void scan(long table)
@@ -691,8 +689,10 @@ static void scan(long table)
 
 	if (!want || !logf)
 		return;
+	if (!rdn_engine_layout())
+		return;
 	value = strtoul(want, NULL, 16);
-	base = (unsigned long *)(table - ENGINE_CTX_TABLE_OFFSET);
+	base = (unsigned long *)(table - rdn_engine_layout()->table_off);
 	for (i = 0; i < ENGINE_CTX_SCAN_BYTES / 4; i++)
 		if (base[i] >= value - 4 && base[i] <= value + 0xab8)
 			fprintf(logf, TAG "   engine context %p +%05x: %08lx\n",
@@ -749,7 +749,9 @@ static void table_hook(long table)
 	static int registered;
 	int i;
 
-	if (!getenv("RDN_GLD_TABLE") || !t)
+	/* The wrappers are for the 33 words of 10.4.11's table. */
+	if (!getenv("RDN_GLD_TABLE") || !t || !rdn_engine_layout() ||
+	    rdn_engine_layout()->table_entries != DRIVER_TABLE_ENTRIES)
 		return;
 	for (i = 0; i < DRIVER_TABLE_ENTRIES; i++) {
 		if (!t[i] || t[i] == table_wrap[i])
@@ -786,11 +788,15 @@ static long present_wrap(long a, long b, long c, long d, long e, long f,
 static void present_hook(void *gld_ctx, long table)
 {
 	gld_fn *t = (gld_fn *)table;
+	const struct rdn_engine_layout *engine = rdn_engine_layout();
 
 	present_ctx = gld_ctx;
-	if (t[DRIVER_TABLE_PRESENT] != present_wrap) {
-		present_real = t[DRIVER_TABLE_PRESENT];
-		t[DRIVER_TABLE_PRESENT] = present_wrap;
+	/* Where "present" is in the driver table is not known for 10.5. */
+	if (!engine || engine->present < 0)
+		return;
+	if (t[engine->present] != present_wrap) {
+		present_real = t[engine->present];
+		t[engine->present] = present_wrap;
 	}
 }
 
@@ -1127,7 +1133,8 @@ static long adjust(int idx, long a, long b, long c, long d, long ret)
 			present_hook((void *)a, b);
 #else
 		if (b)
-			take_over(*(GLIFunctionDispatch **)(b - APP_DISPATCH_BACK));
+			if (rdn_engine_layout())
+				take_over(*(GLIFunctionDispatch **)(b - rdn_engine_layout()->disp_back));
 #endif
 		break;
 #ifdef RDN_MESA

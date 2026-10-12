@@ -293,11 +293,24 @@ loader read in `_glepAddPlugin`'s neighbourhood (file offsets 0x11d0 to 0x1450).
   object, option, &result)` writes a byte result (0 = contents kept);
   `gldCreateProgram(driverCtx, &out, arg, &info20)` per renderer with a
   20-byte record; `gldDestroyProgram(driverCtx, program)`.
-- **Not looked at yet:** the 10.5 engine's equivalents of the Tiger offsets
-  `rend + 0x4698` (driver's table) and `rend + 0x4680` (`disp` pointer): the
-  structures moved (the renderer array above is new to us), so those
-  offsets are certainly not 10.5's and the dispatch replacement must find
-  them again; the hook on `cglsSetInteger` fails its twelve-word check on
+- **The engine context's offsets [V, 2026-10-12, `tools/guest/glctx_scan.c`
+  on a 10.5.9 VM; calibrated on 10.4.11, where it finds 0x4680 and 0x4698
+  exactly]:**
+
+  | | 10.4.11 | 10.5.9 |
+  |---|---|---|
+  | pointer to the app's table (`&ctx->disp`) | `rend + 0x4680` | `rend + 0x5c78` |
+  | driver table (the `table` of `gldInitDispatch`) | `rend + 0x4698`, 33 words | `rend + 0x5cc4`, 42 words |
+  | distance, pointer to table | 0x18 | 0x4c |
+  | entries in the app's table (before `priv`, `stak`) | 684 | 759 (the SDK header's count) |
+  | plug-in's gld table copied into the context | 61 words at `+0x4754` | 64 words at `+0x5da4` |
+
+  The first 686 entries of 10.5's header are 10.4u's, in the same order, so
+  one generated glue works for both; the bundle takes the count from
+  `gld/rdn_engine.h` by kernel version and leaves the engine alone on a
+  system it does not know. Not known for 10.5: which of the 42 driver table
+  words is "present" (Tiger's is 24); the bundle does not hook it there.
+  Also not looked at: the hook on `cglsSetInteger` fails its twelve-word check on
   10.5.9 and leaves the function alone; the 2D plug-in (`GA`) and the user
   client class names (`IOATIGLContext` against Tiger's `IOATIR300GLContext`)
   also differ.
