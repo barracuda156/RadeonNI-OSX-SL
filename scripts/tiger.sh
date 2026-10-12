@@ -25,6 +25,8 @@
 # Environment:  TIGER_MEM (MB, default 1024), TIGER_DISK, TIGER_USER,
 #               TIGER_BOOTARGS (kernel boot arguments, e.g. debug=0x100).
 #               TIGER_NOVGA=1 (no emulated display; experiment).
+#               TIGER_SSH_PORT, TIGER_VNC, TIGER_SOCK_PREFIX, TIGER_SERIAL_LOG
+#               (a second guest beside Tiger; see scripts/leopard-guest.sh).
 #               TIGER_EVDEV (host event device, e.g. /dev/input/by-id/
 #               usb-Logitech_USB_Receiver-if02-event-mouse: the guest gets
 #               its keys and pointer from boot; QEMU grabs it, both Ctrl
@@ -39,25 +41,35 @@ qemu=$root/third_party/qemu/qemu-system-ppc
 disk=${TIGER_DISK:-$root/images/tiger.qcow2}
 mem=${TIGER_MEM:-1024}
 user=${TIGER_USER:-tiger}
+# A second guest (scripts/leopard-guest.sh) runs beside Tiger by changing
+# these; the defaults are Tiger's.
+ssh_port=${TIGER_SSH_PORT:-2222}
+vnc=${TIGER_VNC:-127.0.0.1:1}
+sockname=${TIGER_SOCK_PREFIX:-qemu}
+serial_log=${TIGER_SERIAL_LOG:-guest-serial.log}
 
 base_args() {
     mkdir -p "$root/build"
     args=(
         -M mac99,via=pmu -cpu G4 -m "$mem"
         -drive "file=$disk,format=qcow2,media=disk"
-        -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:2222-:22"
+        -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:$ssh_port-:22"
         -device sungem,netdev=n0
-        -vnc 127.0.0.1:1
-        -monitor "unix:$root/build/qemu-mon.sock,server,nowait"
-        -qmp "unix:$root/build/qemu-qmp.sock,server,nowait"
+        -vnc "$vnc"
+        -monitor "unix:$root/build/$sockname-mon.sock,server,nowait"
+        -qmp "unix:$root/build/$sockname-qmp.sock,server,nowait"
         -device usb-tablet
-        -serial "file:$root/build/guest-serial.log"
+        -serial "file:$root/build/$serial_log"
     )
     # TIGER_BOOTARGS="debug=0x100" makes a kernel panic print its text and
     # backtrace on the screen instead of the restart dialog.
     # TIGER_NOVGA=1 leaves out the emulated display, so that a passed-through
     # card is the only one. Nothing shows on VNC then, and boot messages
     # only go to the serial log.
+    # A second disk (qcow2), e.g. to copy a volume from it.
+    if [ -n "${TIGER_EXTRA_DISK:-}" ]; then
+        args+=(-drive "file=$TIGER_EXTRA_DISK,format=qcow2,media=disk,if=ide,index=1")
+    fi
     if [ "${TIGER_NOVGA:-0}" = 1 ]; then
         args+=(-vga none)
     fi

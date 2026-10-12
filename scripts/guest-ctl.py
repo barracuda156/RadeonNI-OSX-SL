@@ -24,8 +24,8 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOCK = os.path.join(ROOT, "build", "qemu-qmp.sock")
-SHOT = os.path.join(ROOT, "build", "shot.png")
+SOCK = os.environ.get("GUEST_QMP") or os.path.join(ROOT, "build", "qemu-qmp.sock")
+SHOT = os.environ.get("GUEST_SHOT") or os.path.join(ROOT, "build", "shot.png")
 EVDEV_ID = "evdev0"
 
 KEYMAP = {
