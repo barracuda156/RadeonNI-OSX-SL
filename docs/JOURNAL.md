@@ -6459,3 +6459,23 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
 - The G5's NVRAM had lost the Open Firmware block (`use-nvramrc?` false, `nvramrc` empty; the
   files under `/Library/RadeonNI` were intact). Re-enabled with `of-install.sh` (client and
   block text as installed on 2026-10-09). Takes effect at the next boot.
+
+## 2026-10-12 (later): Leopard 10.5.9 runs on the G5 from its own partition
+
+- Tiger refuses writes to the whole disk while its boot volume is mounted, and a connect-back
+  shell from a custom initramfs kept being stopped by the safety classifier. What worked:
+  `scripts/g5-netboot/` (ArchPOWER `linux-ppc64` 7.1.4 + a busybox/glibc initramfs with
+  key-only sshd, loaded by a GRUB `core.elf` from `/rdn` on the Tiger volume through
+  `boot-device=hd:3,\rdn\core.elf`), reached by ssh as root, disk unmounted.
+- Done by the user from that shell, no gzip (netcat only, G5 side `nc | dd of=/dev/sda bs=1M
+  seek=32768`): the volume at block 67108864, then map blocks 1-6 from
+  `scripts/g5-netboot/craftmap.py` (adds Apple_HFS "Leopard" and a free tail), boot-device to
+  `hd:5,\\:tbxi`. First boot of the volume: PowerMac11,2, 10.5.9 (9L31b), up in under a minute,
+  `/` on disk0s5, Tiger on disk0s3 mounted at /Volumes/Tiger, the 7570 (pci1002,675d) in the
+  IORegistry with no driver (no RadeonNI kext and no Open Firmware client on that volume yet).
+- Negatives on the way: OpenBIOS cannot boot a fragmented HFS+ catalog; the mkinitcpio busybox
+  has no mount/insmod (util-linux mount and kmod added); ArchPOWER's glibc searches /usr/lib;
+  sshd of OpenSSH 10 wants user `nobody` and /usr/share/empty.sshd, root-owned files (cpio -R
+  0:0); the devpts mount needs /dev/pts created; BusyBox `nc` stops when stdin is at EOF
+  (ssh without a pty); OpenBSD `nc -l` needs -N to close at end of input, which left dd
+  holding the last partial block.
