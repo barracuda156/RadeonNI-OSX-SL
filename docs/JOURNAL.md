@@ -6549,3 +6549,21 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   surface path with `Surfaces` true opened a client per window; its placement semantics
   differ), and the first GL client through the bundle (needs a GUI session; `open -a
   Terminal script.command` works from ssh, `launchctl bsexec` no longer does).
+
+## 2026-10-12 (afternoon, later still): a GL program on the card on 10.5.9: runs, reads back zeros
+
+- `tools/guest/glrenderers.c`: CGL lists 0x21a00 (ours, accelerated, 256 MB) and 0x20400.
+  `tools/guest/prelist.c` (off-screen 64x64, list, clear, triangle, `glReadPixels`) on 0x21a00:
+  `GL_RENDERER: ATI Radeon HD 7570`, no GL error, every pixel 000000 (software renderer: right).
+  The program's buffer is at 0xb000 and the attach record gives the same base; width, height
+  and row bytes right.
+- Bundle log with `/tmp/rdngld.trace`: Mesa made current, 645 entries of the app's table are
+  Mesa's, `glClear`, `glCallList`, `glFinish`, `glReadPixels` all reach it, in the order the
+  program made them. `RDN_STATS=1`: 8 command buffers (20 KB), 8 fence waits ended, 6 ms.
+- Not the cause: GART (identical with the boot argument `rdn_gart=0`, which was removed
+  again), glthread (`RDN_GLTHREAD=0` and 1 the same), the back buffer, the sync mode.
+- The kext's own drawing self-test (`AccelSelfTest`, removed again) returned 0 at start: the
+  card draws on the screen surface on 10.5.9 and the CPU reads it through the aperture.
+  `rdnuc alloc` passes. So what fails is between Mesa's rendering to its own buffers and the
+  copy into the program's buffer, or the rendering itself: not yet separated.
+- Left set on the G5: kext personality `Surfaces` false; nothing else of the experiments.

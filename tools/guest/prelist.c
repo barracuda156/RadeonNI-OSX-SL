@@ -55,6 +55,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	CGLSetCurrentContext(ctx);
+	fprintf(stderr, "buffer at %p, %dx%d\n", (void *)buf, W, H);
 
 	/* No drawable yet. */
 	glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
