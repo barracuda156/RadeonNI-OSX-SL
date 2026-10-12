@@ -69,6 +69,7 @@ fi
 say "network: $(ifconfig "$up" | grep 'inet addr')"
 
 # sshd
+mkdir -p /dev/pts /dev/shm
 /bin/mount -t devpts devpts /dev/pts 2>/dev/null
 say "ssh-keygen -A: $(ssh-keygen -A 2>&1 | head -c 300)"
 say "sshd -t: $(/usr/bin/sshd -t -f /etc/ssh/sshd_config 2>&1 | head -c 400)"
