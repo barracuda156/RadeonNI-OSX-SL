@@ -8,6 +8,8 @@
 #   scripts/leopard.sh check     compare the kext's undefined symbols with
 #                                what Leopard's kernel exports (xnu-1228.15.4,
 #                                fetched into third_party/leopard-exports)
+#   LEOPARD_NATIVE=1 scripts/leopard.sh build|check|package
+#                                the same inside the Leopard guest (Xcode 3.1.4)
 #   scripts/leopard.sh package   build/RadeonNI-10.5-<date>-<commit>.zip:
 #                                kext, install.sh, LICENSE, README, the file
 #                                LEOPARD that makes install.sh accept 10.5
@@ -28,12 +30,19 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-out=$root/build/leopard
+# LEOPARD_NATIVE=1 builds inside the real Leopard guest
+# (scripts/leopard-guest.sh) instead of cross-building in the Tiger guest;
+# the result goes to build/leopard-native/ so the two can be compared.
+if [ "${LEOPARD_NATIVE:-0}" = 1 ]; then
+    out=$root/build/leopard-native
+    gssh() { "$root/scripts/leopard-guest.sh" ssh "$@"; }
+else
+    out=$root/build/leopard
+    gssh() { "$root/scripts/tiger.sh" ssh "$@"; }
+fi
 exports=$root/third_party/leopard-exports
 tag=xnu-1228.15.4
 gdir=osx-gpu-leopard
-
-gssh() { "$root/scripts/tiger.sh" ssh "$@"; }
 
 build() {
     tar -C "$root" -cf - hw kext | gssh "rm -rf ~/$gdir && mkdir -p ~/$gdir && tar -C ~/$gdir -xf -"
