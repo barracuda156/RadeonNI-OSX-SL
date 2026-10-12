@@ -6505,3 +6505,24 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   refused program (id 1).
 - Bundle bedfcc13 (before: 7fdcfdad). `/tmp/rdngld.on` and `/tmp/rdngld.arrays` are left on
   the G5 for the next session (the plain log costs little; remove them for normal play).
+
+## 2026-10-12 (afternoon): the 3D engine starts on Leopard on the real G5
+
+- Experimental 10.5 accelerator package (`scripts/leopard.sh package-accel`, marker
+  `LEOPARD-ACCEL`; `install.sh --accel` accepts 10.5 only with it): the kext built in the
+  Leopard VM, `RadeonNIGA.plugin` (VM, 10.4u SDK), the OpenGL bundle from
+  `scripts/gld-relink.py` (66 entry points, export list, engine layout by kernel version),
+  the three microcode files. `install.sh --accel --check` on the G5: loadable. Installed.
+- First restart request did not take (the `shutdown -r` child died with the ssh session);
+  `/sbin/reboot` did.
+- Boot 09:51 (G5 clock): framebuffer 1920x1080 32 bpp, then `ring test succeeded`, `3D
+  engine up; 222 MB of video memory for clients, 768 MB more beyond the aperture`, GART
+  1024 MB enabled ("the GPU ran a command buffer from system memory"), power state 1, and
+  `accelerator at .../RadeonNIAGPAncestor/RadeonNIAccel`. ioreg: `RadeonNIAccel` with
+  `IOMatchCategory` IOAccelerator, `IOGLBundleName` RadeonNIGLDriver, `IOAccelRevision` 2;
+  the framebuffer has `IOAccelTypes`, `IOAccelIndex`. 10.5's window server opened a surface
+  client at once (`surface 1: setIDMode/setShape`, the login window's text cursor).
+- Not yet: any GL client through the bundle (`/tmp/rdngld.log` does not exist yet);
+  `launchctl bsexec` to loginwindow/WindowServer now fails ("Operation not supported on
+  socket") where it worked before the restart, so the test programs need a logged-in GUI
+  session (osascript into Terminal).
