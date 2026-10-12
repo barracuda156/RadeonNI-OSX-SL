@@ -22,7 +22,7 @@ export TIGER_SSH_PORT=${LEOPARD_SSH_PORT:-2223}
 export TIGER_VNC=${LEOPARD_VNC:-127.0.0.1:2}
 export TIGER_SOCK_PREFIX=leopard
 export TIGER_SERIAL_LOG=leopard-serial.log
-export TIGER_USER=${LEOPARD_USER:-leopard}
+export TIGER_USER=${LEOPARD_USER:-tiger}
 
 case "${1:-}" in
 ssh)

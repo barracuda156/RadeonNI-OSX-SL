@@ -6415,3 +6415,29 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   `649accf` and the new one), called by `leopard.sh check` and `make-g5-package.sh`.
 - Lesson recorded in `docs/LEOPARD.md`. Other things seen in the tester's registry dump: the Mac
   is a PowerMac11,2 with an X1900 (Apple's driver) and the Dell 6670 in SLOT-3 at x8, 2.5 GT/s.
+
+## 2026-10-11 (night): a Mac OS X 10.5.9 guest; kext built natively; the GL bundle on 10.5
+
+- Asked for by the user: a separate VM with Sorbet Leopard R15 and Xcode 3.1.4, the kext built
+  there, and the 3D bundle looked at. The user also corrected the record: the hand-patched kext
+  did work on a 10.5 Mac (LEOPARD.md said "never run"; reworded).
+- `scripts/leopard-guest.sh` (tiger.sh with env overrides; Tiger's guest untouched). Sorbet's dmg
+  is a bare HFS+ volume whose catalog has 8 extents; OpenBIOS reads the first only and cannot
+  boot it, even with a partition map. Re-created the volume with `ditto` from the Tiger DVD
+  environment and `bless`ed it: boots. Setup Assistant stops taking keys after the keyboard
+  step (negative: clicks, return, keypad enter, waiting); done in single user mode instead.
+- Xcode 3.1.4 `installer -target /` lands in `/`, not `/Developer`; moved by hand.
+- Native build: `LEOPARD_NATIVE=1 scripts/leopard.sh build|check`: same 586 undefined symbols as
+  the Tiger-guest cross build, relocation check passes, `kextload -t -n` loadable. Not started
+  (no card in the server).
+- GL bundle: dlopen of the host-built Tiger bundle works on 10.5.9, 62 of 66 `gld*` present
+  (new: gldCreateProgram, gldDestroyProgram, gldObjectPurgeable, gldObjectUnpurgeable); the
+  dispatch table grew 686 to 759 entries at the end only; `cglsSetInteger` is another function
+  there (hook check fails, safe). Found: static GCC 14 libstdc++ coalesces with 10.5's system
+  libstdc++ and corrupts the heap during static init; export list (`gld/rdn_gld.exports`) fixes
+  it, verified by relinking the finished bundle (no rebuild).
+- Negative: the non-Mesa forwarder build in `gld/Makefile` no longer compiles (asked_samples
+  and `in_window_server` are inside `#ifdef RDN_MESA`); not a Leopard problem, not fixed.
+- Not done: Mesa not rebuilt from this worktree (the shared `third_party` tree has newer
+  `mesa/` and `gld/` than this branch; building here would overwrite it); engine context
+  offsets and records of 10.5's GLEngine; the four new gld entries.

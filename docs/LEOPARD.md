@@ -1,10 +1,12 @@
-# Mac OS X 10.5 (Leopard, PowerPC): framebuffer kext, paper-checked only
+# Mac OS X 10.5 (Leopard, PowerPC): framebuffer kext and GL bundle study
 
-Read this before touching 10.5 support. **Nothing here has run on a 10.5
-Mac.** The only thing known is that the Tiger-built kext *links* against
-Leopard's published kernel export lists once two stubs are added, and
-that the class layouts the kext depends on are the same in Apple's public
-10.4 and 10.5-era sources. Acceleration is not part of it (below).
+Read this before touching 10.5 support. The user reports that the
+hand-patched kext worked on a 10.5 Mac; the sections below that predate it
+(paper checks, 2026-10-11) say "never run" and are kept as the record of
+what was compared. Since 2026-10-11 there is also a **Leopard guest** (Sorbet
+Leopard R15 = 10.5.9, Xcode 3.1.4) in which the kext is built natively and
+the GL bundle can be inspected (next section). Acceleration on 10.5 is
+still not working: see "GL bundle on 10.5".
 
 Build and package: `scripts/leopard.sh build|check|package`. The kext is
 built in the Tiger guest with `make LEOPARD=1` (its own `build-leopard/`),
@@ -12,6 +14,90 @@ which adds `kext/RadeonNI/leopard.s`. `g5/install.sh` accepts 10.5 only in
 a package with the file `LEOPARD` and without `--accel`; `--check`
 (`kextload -t -n`, writes nothing) and `--try` (load from /tmp, not
 installed) are for a first run.
+
+## The Leopard guest (2026-10-11)
+
+`scripts/leopard-guest.sh run|ssh|snapshot|restore` is `scripts/tiger.sh`
+with its own disk (`images/leopard.qcow2`), ssh port 2223, VNC `:2`
+(5902) and sockets `build/leopard-{mon,qmp}.sock` (`GUEST_QMP` and
+`GUEST_SHOT` point `guest-ctl.py` at them). It runs beside the Tiger guest;
+no passthrough is offered from it. User `tiger`, the same key.
+
+How it was made, since the obvious ways fail:
+
+- The Sorbet dmg is one HFS+ volume, no partition map: write it into a
+  disk with a partition map (`parted mklabel mac`, partition at sector 64)
+  and the Open Firmware of QEMU (OpenBIOS) **still cannot boot it**: its
+  catalog file is fragmented (8 extents), and OpenBIOS reads only the
+  first. Fix: boot the Tiger DVD with the volume as a second disk,
+  `diskutil partitionDisk` a new one and `ditto -rsrc` the volume over, then
+  `bless --folder .../CoreServices --bootinfo`. The result boots.
+- Setup Assistant answers the keyboard step and then stops taking input
+  (QEMU's emulated keyboard). Worked around in single user mode (`-s`):
+  `touch /var/db/.AppleSetupDone`, a user created with `dscl -f
+  /var/db/dslocal/nodes/Default localhost` after
+  `launchctl load .../com.apple.DirectoryServicesLocal.plist`, the key in
+  `authorized_keys`, `sudoers`, and ssh enabled in `ssh.plist`.
+- Xcode 3.1.4: the dmg is plain (concatenate its `.hfs` with the small
+  parts, `hdiutil attach -imagekey diskimage-class=CRawDiskImage`), but
+  `installer -pkg ... -target /` puts the relocatable parts in `/` instead
+  of `/Developer`; move `Documentation Extras Headers Makefiles Platforms
+  SDKs Tools` and the Xcode apps into `/Developer` and run
+  `xcode-select -switch /Developer`. gcc 4.0.1 (Apple build 5493), gcc 4.2,
+  llvm-gcc and the 10.4u and 10.5 SDKs come with it.
+
+### Native kext build (verified)
+
+`LEOPARD_NATIVE=1 scripts/leopard.sh build|check` builds `kext/RadeonNI`
+with `make LEOPARD=1` inside the guest. Result: builds first time with
+Xcode 3.1.4's gcc 4.0.1 and 10.5's Kernel.framework; the 586 undefined
+symbols are **identical** to the Tiger-guest cross-build's; the relocation
+check passes; `kextload -t -n` on 10.5.9 says "appears to be loadable" and
+`kextlibs` resolves `com.apple.kpi.*` 9.8.0, IOPCIFamily 2.6, IOGraphicsFamily
+1.7.3. No card, so nothing was started.
+
+## GL bundle on 10.5 (2026-10-11, no card in the server)
+
+What is known by running things in the guest:
+
+- **The Tiger bundle loads.** The host-built `RadeonNIGLDriver.dylib`
+  (Mesa inside, 10.4u SDK) `dlopen`s on 10.5.9: its imports (libz, IOKit,
+  libSystem) exist, and 62 of Leopard's 66 `gld*` names are present.
+- **`gld*` differences.** Apple's X1000 driver on 10.5 exports 66; the
+  bundle's table has 63 (62 of them in Leopard's list). New on 10.5:
+  `gldCreateProgram`, `gldDestroyProgram`, `gldObjectPurgeable`,
+  `gldObjectUnpurgeable`. Tiger-only name: `gldRelatePipelineProgram`.
+  Signatures of the four are not known.
+- **Dispatch table.** `gliDispatch.h` of the 10.5 SDK has 759 entries
+  against 686 in the 10.4u SDK, and the first 686 are the same names in
+  the same order: the table only grew at the end. The glue generated from
+  the 10.4u header therefore covers the first 686 entries on 10.5 and the
+  rest stay the engine's. (Do not generate from the 10.5 header for a
+  bundle that must also run on Tiger: it would write past Tiger's table.)
+- **Window server hook.** `cglsSetInteger` on 10.5.9 is another function
+  (its first words are `mflr r0; cmpwi r3,0; bcl 20,31; ...`), so the
+  twelve-word check fails and the hook leaves it alone, as designed. What
+  the hook was for (a Core Image backdrop texture) will not work until the
+  10.5 function is read.
+- **Not known**: the engine context offsets (`rend + 0x4698` table,
+  `+ 0x4680` `disp`), the pixel format and renderer info records, and the
+  drawable records. Without the card the guest never selects our bundle (the
+  kext announces the accelerator only with the card), so these need either
+  disassembly of 10.5's `GLEngine` or a run on the G5.
+
+### A Leopard-only bug found: libstdc++ coalescing
+
+The bundle statically links GCC 14's libstdc++. On 10.5 dyld coalesces its
+exported weak symbols with the system's `libstdc++.6`, an older ABI:
+during `dlopen`, `std::ios_base::Init` (ours) called the system's
+`basic_ios::init`, and `locale::_Impl::_M_install_facet` freed pointers it
+did not allocate ("Non-aligned pointer being freed" ×15, from
+`_GLOBAL__sub_I_r600_sfn.cpp`). Fix: export only the `gld*` names
+(`gld/rdn_gld.exports`, `-Wl,-exported_symbols_list` in
+`mesa/target/meson.build`). Relinking the finished bundle with the list
+(without rebuilding Mesa) removed the errors on 10.5.9; the Tiger link
+accepts the same flag. Not yet seen on a Tiger run: needs a rebuild with
+`scripts/build-mesa.sh darwin` from the checkout that has the Mesa tree.
 
 ## What was compared (2026-10-11, from Apple's public sources)
 
@@ -111,13 +197,14 @@ than the first, or of a member, of local data.
 
 ## Not done, not known
 
-- **A load on a real 10.5.** `kextload -t -n` there is the first test.
+- ~~A load on a real 10.5~~: done by the user with the hand-patched kext;
+  `kextload -t -n` of the native build is "loadable" (above).
 - The family kexts' own version requirement: `Info.plist` asks for
   `IOGraphicsFamily` and `IOPCIFamily` 1.0; not checked against 10.5's.
 - Runtime behaviour: the window server and `IOFramebuffer` of 10.5 differ
   from 10.4 in ways the headers do not show (mode validation, display
   change notifications, clamshell).
-- **Acceleration is out**: the GL bundle follows the Tiger `gld*` interface,
+- **Acceleration is not done** (see "GL bundle on 10.5"): the GL bundle follows the Tiger `gld*` interface,
   the window server hook (`cglsSetInteger`, twelve checked words) is
   10.4.11's, and the 2D plug-in is Tiger's. 10.5 would be a new interface
   study (VMsvga2's 10.5/10.6 signatures are the only lead, `[I]` in

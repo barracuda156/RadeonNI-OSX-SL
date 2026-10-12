@@ -46,6 +46,13 @@ skill (`scripts/mac.sh`).
   `x-no-mmap=on` and writes the register trace to `traces/`, which makes
   framebuffer drawing extremely slow.
 
+- `scripts/leopard-guest.sh {run|cdrom|snapshot|restore|ssh}`: the Mac OS X
+  10.5.9 (Sorbet) guest beside Tiger: `images/leopard.qcow2`, ssh 2223,
+  VNC :2, sockets `build/leopard-*.sock`. `scripts/tiger.sh` reads
+  `TIGER_SSH_PORT`, `TIGER_VNC`, `TIGER_SOCK_PREFIX`, `TIGER_SERIAL_LOG`,
+  `TIGER_EXTRA_DISK`; `guest-ctl.py` reads `GUEST_QMP`, `GUEST_SHOT`.
+  `LEOPARD_NATIVE=1 scripts/leopard.sh build|check` builds the kext in it.
+  How it was made: `docs/LEOPARD.md`.
 - `TIGER_NOVGA=1` with `scripts/tiger.sh passthru`: no emulated display,
   so that the 7570 is the only one (works, 2026-10-05; nothing on VNC,
   wait for ssh rather than `guest-cycle.sh ready`, then `kext.sh up`).

@@ -95,7 +95,13 @@ if host_machine.system() == 'darwin'
     c_args : ['-DRDN_MESA'],
     gnu_symbol_visibility : 'hidden',
     include_directories : [rdn_inc, include_directories('gld')],
-    link_args : rdn_device_link_args,
+    # Only the gld* entry points leave the bundle. The static libstdc++
+    # would otherwise export its weak symbols, and on Mac OS X 10.5 dyld
+    # binds them to the system's libstdc++ (another ABI), which then frees
+    # pointers it did not allocate during static initialisation.
+    link_args : rdn_device_link_args + [
+      '-Wl,-exported_symbols_list,' + meson.current_source_dir() / 'gld' / 'rdn_gld.exports',
+    ],
     link_whole : rdn_link_whole,
     link_with : rdn_link_with,
     dependencies : rdn_deps,
