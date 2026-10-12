@@ -6479,3 +6479,29 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   0:0); the devpts mount needs /dev/pts created; BusyBox `nc` stops when stdin is at EOF
   (ssh without a pty); OpenBSD `nc -l` needs -N to close at end of input, which left dd
   holding the last partial block.
+## 2026-10-11: Pirates! missing island sand: Mesa refuses ALIAS of a binding (gld/rdn_arbtext.c)
+
+- The user saw no sand on the islands (and the 3-program crash fix did not change that).
+  The plain log (`/tmp/rdngld.on`) of one session showed Mesa's parser refusing 11 of the
+  game's ARB programs, 2 vertex and 9 fragment ("syntax error, unexpected FRAGMENT/VERTEX,
+  expecting USED_IDENTIFIER", and "unexpected MASK1, expecting ';'"); the game then draws with
+  no program bound to them. The first program ever loaded (3056 bytes, the ocean) was among
+  them, which is also why program id 1 was "unknown" to glthread.
+- Apple's compiler accepts, Mesa's does not (the four forms in the failing programs):
+  `ALIAS vN = vertex.attrib[N];`, `ALIAS vN_Temp = fragment.color.primary|secondary;`,
+  `ALIAS cN = program.env[N];` and `ALIAS one = constant.x;` (a component of a literal PARAM).
+  Mesa's `ALIAS` needs an existing variable.
+- `gld/rdn_arbtext.c`: rewrites those statements to ATTRIB, PARAM or OUTPUT (and a swizzled
+  literal to a splat PARAM) before the text goes to Mesa, next to `weight_as_attrib` in the
+  program-string entry (`gld/gen_dispatch.py`), for vertex and fragment programs.
+  `tests/arb_alias.c` (native and under qemu-ppc, in `make test`); run over the 11 real
+  texts: no ALIAS of a binding or a constant is left. Not verified: that Mesa then accepts
+  every one of them, and that the sand is back (needs the game; the user asked that I do not
+  run it myself).
+- glthread: the vertex program's inputs were recorded only in the marshal hook, which does not
+  run for calls made before glthread is on for the context; `arbprogram.c` now records them
+  too (patch 0013). The table is in `gl_shared_state` (programs are shared between contexts).
+  Of 47 vertex program draws in the user's session 41 had their inputs, the other 6 were the
+  refused program (id 1).
+- Bundle bedfcc13 (before: 7fdcfdad). `/tmp/rdngld.on` and `/tmp/rdngld.arrays` are left on
+  the G5 for the next session (the plain log costs little; remove them for normal play).
