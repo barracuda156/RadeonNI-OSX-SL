@@ -128,6 +128,7 @@ package() {
     touch "$stage/LEOPARD"
     echo "$rev (10.5 framebuffer-only build)" > "$stage/VERSION"
     cp "$root/g5/LEOPARD-README.txt" "$stage/README.txt"
+    [ "${ACCEL:-0}" = 1 ] && cp "$root/g5/LEOPARD-ACCEL-README.txt" "$stage/README.txt"
     if [ "${ACCEL:-0}" = 1 ]; then
         touch "$stage/LEOPARD-ACCEL"
         echo "$rev (10.5 EXPERIMENTAL accelerator build)" > "$stage/VERSION"

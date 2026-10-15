@@ -70,9 +70,9 @@ case "$(sw_vers -productVersion)" in
     if [ "$accel" = 1 ]; then
         [ -f "$here/LEOPARD-ACCEL" ] ||
             fail "--accel on 10.5 needs the package built for it (a file LEOPARD-ACCEL, scripts/leopard.sh package-accel)"
-        echo "Mac OS X $(sw_vers -productVersion): EXPERIMENTAL accelerator. The framebuffer runs on 10.5; the"
-        echo "3D engine, the OpenGL bundle and the 2D plug-in have never run there. If the Mac does not"
-        echo "finish booting, see the end of this script's output for the way back."
+        echo "Mac OS X $(sw_vers -productVersion): EXPERIMENTAL accelerator. Run on one Power Mac G5 under"
+        echo "10.5.9 only (OpenGL in windows and full screen; Quartz Extreme and Core Image in software)."
+        echo "If the Mac does not finish booting, see the end of this script's output for the way back."
     else
         echo "Mac OS X $(sw_vers -productVersion): framebuffer-only build."
         echo "Start with: sudo sh ./install.sh --check   (writes nothing)"
