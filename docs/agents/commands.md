@@ -161,3 +161,24 @@ skill (`scripts/mac.sh`).
   org.osxgpu.driver.RadeonNIRomProbe`). It reads the card's whole ROM BAR
   and publishes it as the property `ROM` of its registry entry (`ioreg -c
   RadeonNIRomProbe -l -w0`), without touching the driver.
+
+## Releases: one for Tiger, one for Leopard (2026-10-15)
+
+Both come from the same tree (`main`); the OS difference is in the package, in
+`gld/rdn_engine.h` (the engine's layout by kernel major version, chosen at run time) and in
+the kext's personality written by `g5/install.sh` (`Surfaces`, `SurfaceGate`).
+
+| | Tiger 10.4.11 | Leopard 10.5.9 |
+|---|---|---|
+| Command | `scripts/make-dist.sh [--keep-gl] [--no-mpkg]` | `LEOPARD_NATIVE=1 scripts/leopard.sh build && LEOPARD_NATIVE=1 scripts/leopard.sh package-accel` |
+| Needs running | Tiger guest (`scripts/tiger.sh run`): kext and 2D plug-in with Xcode 2.5 | Leopard guest (`scripts/leopard-guest.sh run`): kext and plug-in with Xcode 3.1.4 |
+| OpenGL bundle | Mesa cross-built on the host (`scripts/build-mesa.sh darwin`, in the checkout that owns `third_party/mesa-*`) | the same tree's objects, only `gld/*.c` recompiled and relinked with the export list (`scripts/gld-relink.py`; no Mesa rebuild) |
+| Output | `build/RadeonNI-<date>-<commit>.zip` (+ `RadeonNI.mpkg`) | `build/RadeonNI-10.5-<date>-<commit>-accel.zip` (`LEOPARD`, `LEOPARD-ACCEL` markers) |
+| Install | `sudo ./install.sh --accel` or the mpkg | `sudo ./install.sh --check`, then `sudo ./install.sh --accel`; restart |
+| README | `g5/README.txt` | `g5/LEOPARD-ACCEL-README.txt` (`g5/LEOPARD-README.txt` for the framebuffer-only `package`) |
+
+`install.sh` refuses a 10.4 package on 10.5 (no `LEOPARD`) and `--accel` on 10.5 without
+`LEOPARD-ACCEL`. Commit before packaging: the file name carries the HEAD commit, and
+`make-dist.sh` adds `-dirty`. Between a Leopard bundle and the Tiger one the difference is
+only which Mesa objects were last built; both export the same 66 `gld*` names
+(`scripts/gld-names-check.sh tiger|leopard <dylib>`).
