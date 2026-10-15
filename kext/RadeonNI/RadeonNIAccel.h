@@ -98,6 +98,14 @@ public:
 			      UInt32 rects);
 	bool getSurfaceRegion(UInt32 wid, struct rdn_user_region *region);
 	void forgetSurface(UInt32 wid);
+	/*
+	 * With the gate on (personality key SurfaceGate), setIDMode takes
+	 * only surfaces whose owner has announced them with
+	 * RDN_UC_SURFACE_BUFFER (width 0 is enough): the programs'
+	 * OpenGL windows, not the window server's own windows of 10.5.
+	 */
+	bool surfaceGate(void) { return fSurfaceGate; }
+	bool isGLSurface(UInt32 wid);
 	void setSurfaceBuffer(UInt32 wid, UInt32 offset, UInt32 rowBytes,
 			      UInt32 width, UInt32 height);
 	bool getSurfaceBuffer(UInt32 wid, UInt32 *offset, UInt32 *rowBytes,
@@ -132,10 +140,13 @@ private:
 	bool fPowerKnown;
 	/* Hand out surface clients (RadeonNISurface.h)? */
 	bool fSurfaces;
+	bool fSurfaceGate;
 	enum { kMaxSurfaces = 32 };
 	struct {
 		UInt32 wid;
 		bool used;
+		/* announced by its owner (RDN_UC_SURFACE_BUFFER) */
+		bool gl;
 		struct rdn_user_region region;
 		/* The surface's picture, if its owner has said where it is. */
 		UInt32 bufOffset, bufRowBytes, bufWidth, bufHeight;

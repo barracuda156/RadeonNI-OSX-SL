@@ -179,10 +179,12 @@ perl -MMIME::Base64 -e '
         }
         $extra .= "\t\t\t<key>AccelCaps</key>\n\t\t\t<integer>3</integer>\n";
         $extra .= "\t\t\t<key>AGPShim</key>\n\t\t\t<integer>3</integer>\n";
-        # The kext window surfaces are for the window server of 10.4: on 10.5.9 they
-        # put some windows (the Apple of the menu bar, parts of the Dock) elsewhere.
-        my $surfaces = -f "$dir/LEOPARD" ? "false" : "true";
-        $extra .= "\t\t\t<key>Surfaces</key>\n\t\t\t<$surfaces/>\n";
+        # The window server of 10.5.9 makes a surface of many of its own windows (the
+        # Apple of the menu bar, parts of the Dock) that nothing draws: the gate
+        # leaves it only the surfaces programs announce, their OpenGL windows.
+        my $gate = -f "$dir/LEOPARD" ? "true" : "false";
+        $extra .= "\t\t\t<key>Surfaces</key>\n\t\t\t<true/>\n";
+        $extra .= "\t\t\t<key>SurfaceGate</key>\n\t\t\t<$gate/>\n";
         $extra .= "\t\t\t<key>GAPlugin</key>\n\t\t\t<true/>\n";
         $extra .= "\t\t\t<key>HWCursor</key>\n\t\t\t<true/>\n" if $hwcursor;
     }

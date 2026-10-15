@@ -6567,3 +6567,37 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   `rdnuc alloc` passes. So what fails is between Mesa's rendering to its own buffers and the
   copy into the program's buffer, or the rendering itself: not yet separated.
 - Left set on the G5: kext personality `Surfaces` false; nothing else of the experiments.
+
+## 2026-10-15: windows on 10.5.9: `glcBindSurface` takes the address of the surface ID
+
+- The failing probes of the 10.5 suite (`mtex`, `packedtest`, `occtest`: black) were all
+  GLUT windows; the ones that passed drew off-screen or only read back from Mesa. In the
+  bundle's log the window's `gldAttachDrawable` said "surface ... bound -> e00002bc" and the
+  attach then parsed 30445644x16843904: the bind failed and the record of 10.5 (connection,
+  window, surface, then pointers) is not the buffer description the software path reads.
+  With `RDN_GLD_NOSURFACE=1` the same programs read back right (Mesa's own buffer) but the
+  window shows nothing: there is no pixel buffer in 10.5's record.
+- `gldInitializeLibrary`'s arguments on 10.5 are as on 10.4 (a: array with one word per
+  display, 0x2e0b here; d and e: code). Disassembling `glcBindSurface` in 10.5.9's
+  OpenGL.framework: arguments are connection, window, **pointer to the surface ID**, mode,
+  display word; it loops over the displays' words, finds the one equal to the fifth and calls
+  `CGSBindSurface(connection, window, *surface, 2, mode, displayID)`. With the ID passed by
+  value, nothing matches, and it returns 0xe00002bc (never dereferences it).
+- Fixed in the bundle (`gld/RadeonNIGLDriver.c`: the address of a local copy on 10.5). Then:
+  the window server opens the surface client, the kext gets `setIDMode(id, 0x24)`, the bundle
+  keeps the picture at an aperture offset, and the whole suite on the real G5 with renderer
+  0x21a00: `mtex` 9d9d9d everywhere, `occtest` 400/0/0, `packedtest` all drawn ok,
+  `sharetest`, `appletest`, `pfsamples` pass; only `pinned` (no `GL_AMD_pinned_memory`) fails.
+- With `Surfaces` true the desktop's gaps are now one: the Apple of the menu bar is not drawn
+  (the window server of 10.5 makes a surface client, `setIDMode` 0x24 and `setShape`, for
+  many of its own small windows: 35x24, 3x2, 516x7 ...; nothing draws them). The earlier bottom
+  strip and black Dock patch were not seen on this boot.
+- Tried next: a gate in the kext (`SurfaceGate` in the personality, written by `install.sh` for
+  10.5): `setIDMode` refuses a surface ID the program has not announced with
+  `RDN_UC_SURFACE_BUFFER` (width 0) before it asks the window server to bind it.
+- **Result of the gate (G5, 10.5.9, `Surfaces` true + `SurfaceGate` true):** the Apple of the
+  menu bar is back, the Dock and the bottom edge are whole (grab), and the suite on 0x21a00
+  is unchanged (23 PASS lines, `mtex` 9d9d9d, `occtest` 400/0/0, `packedtest` all ok; only
+  `pinned` fails). `install.sh --accel` writes both keys for a package with LEOPARD; on 10.4
+  `SurfaceGate` is false (nothing changes). Not yet checked: Tiger on the card since the
+  per-OS layout, the gate and the bind change (the Tiger path is by-value, as before).

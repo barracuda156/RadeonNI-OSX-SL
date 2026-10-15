@@ -1143,6 +1143,8 @@ static long adjust(int idx, long a, long b, long c, long d, long ret)
 			rdn_mesa_context_created(*(void **)a, (void *)d);
 		break;
 	case IDX_gldAttachDrawable:
+		if (logf && b == 0x50 && pointer_like(c))
+			dump("window record after the call", c, 0x80);
 		rdn_mesa_attach((void *)a, b, (const void *)c);
 		break;
 #else
@@ -1172,6 +1174,14 @@ static long forward(int idx, long a, long b, long c, long d, long e, long f,
 		fflush(logf);
 		if (idx == IDX_gldSetInteger)
 			dump_parameter("gldSetInteger sets", b, c);
+		if (idx == IDX_gldInitializeLibrary) {
+			static const char *const an[] = { "a", "b", "c", "d", "e" };
+			int k;
+
+			for (k = 0; k < 5; k++)
+				if (pointer_like(args[k]))
+					dump_from(an[k], args[k], 0x40, 0);
+		}
 		/*
 		 * A drawable the bundle does nothing with yet, in whatever
 		 * way the call is answered below, and before the call as
@@ -1221,8 +1231,19 @@ static long forward(int idx, long a, long b, long c, long d, long e, long f,
 		if (idx == IDX_gldAttachDrawable && b == 0x50 && c &&
 		    bind_surface && display_words) {
 			const unsigned long *r = (const unsigned long *)c;
-			long err = bind_surface(r[0], r[1], r[2], 0x24,
-						display_words[0]);
+			unsigned long sid = r[2];
+			const struct rdn_engine_layout *lay = rdn_engine_layout();
+			/*
+			 * 10.5's glcBindSurface takes the address of the
+			 * surface ID (it reads it where it calls
+			 * CGSBindSurface); 10.4's takes the ID.
+			 */
+			long err;
+
+			rdn_mesa_expect_surface((void *)a, sid);
+			err = bind_surface(r[0], r[1],
+						lay && !strcmp(lay->os, "10.5") ? (long)&sid : (long)sid,
+						0x24, display_words[0]);
 
 			if (logf)
 				fprintf(logf, TAG "   surface 0x%lx of window 0x%lx bound -> %lx\n",

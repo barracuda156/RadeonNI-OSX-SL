@@ -148,6 +148,7 @@ RadeonNIAccel *RadeonNIAccel::withFramebuffer(RadeonNI *fb, IOService *provider)
 		accel->setProperty("AccelCaps", caps);
 
 	accel->fSurfaces = fb->getProperty("Surfaces") == kOSBooleanTrue;
+	accel->fSurfaceGate = fb->getProperty("SurfaceGate") == kOSBooleanTrue;
 	accel->fEngineUp = accel->startEngine();
 	accel->setProperty("RadeonNIEngine", accel->fEngineUp);
 
@@ -754,8 +755,10 @@ void RadeonNIAccel::setSurfaceRegion(UInt32 wid, const IOAccelDeviceRegion *rgn,
 	if (slot >= 0) {
 		struct rdn_user_region *region = &fShapes[slot].region;
 
-		if (!fShapes[slot].used)
+		if (!fShapes[slot].used) {
 			fShapes[slot].bufWidth = 0;
+			fShapes[slot].gl = false;
+		}
 		fShapes[slot].used = true;
 		fShapes[slot].wid = wid;
 		region->count = rects;
@@ -810,6 +813,7 @@ void RadeonNIAccel::setSurfaceBuffer(UInt32 wid, UInt32 offset, UInt32 rowBytes,
 			fShapes[slot].wid = wid;
 			bzero(&fShapes[slot].region, sizeof(fShapes[slot].region));
 		}
+		fShapes[slot].gl = true;
 		fShapes[slot].bufOffset = offset;
 		fShapes[slot].bufRowBytes = rowBytes;
 		fShapes[slot].bufWidth = width;
@@ -835,6 +839,18 @@ bool RadeonNIAccel::getSurfaceBuffer(UInt32 wid, UInt32 *offset, UInt32 *rowByte
 		*height = fShapes[i].bufHeight;
 		found = true;
 	}
+	IOLockUnlock(fLock);
+	return found;
+}
+
+bool RadeonNIAccel::isGLSurface(UInt32 wid)
+{
+	bool found = false;
+	int i;
+
+	IOLockLock(fLock);
+	for (i = 0; i < kMaxSurfaces && !found; i++)
+		found = fShapes[i].used && fShapes[i].wid == wid && fShapes[i].gl;
 	IOLockUnlock(fLock);
 	return found;
 }

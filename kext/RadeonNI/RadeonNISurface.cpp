@@ -429,6 +429,11 @@ IOReturn RadeonNISurfaceClient::setShapeBacking(UInt32 options, UInt32 fbIndex,
 
 IOReturn RadeonNISurfaceClient::setIDMode(UInt32 wid, UInt32 mode)
 {
+	if (fAccel->surfaceGate() && !fAccel->isGLSurface(wid)) {
+		fRefused = true;
+		note(kIOAccelSurfaceSetIDMode, wid, mode, 1, 0);
+		return kIOReturnUnsupported;
+	}
 	fWid = wid;
 	fMode = mode;
 	note(kIOAccelSurfaceSetIDMode, wid, mode, 0, 0);
@@ -447,6 +452,8 @@ IOReturn RadeonNISurfaceClient::setShape(UInt32 options, UInt32 fbIndex,
 {
 	note(kIOAccelSurfaceSetShape, options, fbIndex, size, 0);
 	noteRegion(kIOAccelSurfaceSetShape, rgn, size);
+	if (fRefused)
+		return kIOReturnUnsupported;
 	/* The structure is declared with one rectangle and holds num_rects. */
 	fSetShape = true;
 	if (rgn && size >= sizeof(IOAccelDeviceRegion) - sizeof(IOAccelBounds) &&

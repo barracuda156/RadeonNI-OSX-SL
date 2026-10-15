@@ -69,6 +69,8 @@ private:
 	/* Whose client this is, and its view of the surface while read-locked. */
 	task_t fTask;
 	bool fSetShape;
+	/* setIDMode refused it (RadeonNIAccel::surfaceGate): not ours */
+	bool fRefused;
 	IOMemoryMap *fReadMap;
 
 	IOReturn lockForRead(IOAccelSurfaceInformation *info, IOByteCount *size);

@@ -165,6 +165,12 @@ int rdn_mesa_attach_screen(void *gld_ctx, unsigned long surface);
  * `surface` in the kext; the card shows it there itself. False if Mesa is
  * not available.
  */
+/*
+ * Tell the accelerator that a surface ID is a program's OpenGL window, before
+ * the window server is asked to take it (a kext with the surface gate
+ * refuses the others). 1 if the card was reached.
+ */
+int rdn_mesa_expect_surface(void *gld_ctx, unsigned long surface);
 int rdn_mesa_attach_surface(void *gld_ctx, unsigned long connection,
 			    unsigned long window, unsigned long surface);
 /* RadeonNIGLDriver.c: have the window server draw the surface's area again. */

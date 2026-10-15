@@ -770,6 +770,19 @@ int rdn_mesa_attach(void *gld_ctx, long type, const void *drawable)
 	return 1;
 }
 
+int rdn_mesa_expect_surface(void *gld_ctx, unsigned long surface)
+{
+	struct context *c = find(gld_ctx);
+
+	if (!c)
+		return 0;
+	if (!c->mesa)
+		mesa_for(c);
+	if (!c->mesa)
+		return 0;
+	return rdn_target_surface_buffer((uint32_t)surface, 0, 0, 0, 0) ? 1 : 0;
+}
+
 int rdn_mesa_attach_surface(void *gld_ctx, unsigned long connection,
 			    unsigned long window, unsigned long surface)
 {
