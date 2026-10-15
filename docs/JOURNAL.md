@@ -6601,3 +6601,18 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   `pinned` fails). `install.sh --accel` writes both keys for a package with LEOPARD; on 10.4
   `SurfaceGate` is false (nothing changes). Not yet checked: Tiger on the card since the
   per-OS layout, the gate and the bind change (the Tiger path is by-value, as before).
+
+## 2026-10-15: games on 10.5.9 (G5), run in place from the Tiger volume
+
+- Password of `tiger` on the Leopard volume is now `tiger` (`dscl . -passwd`, `/etc/kcpassword`
+  rewritten; autologin worked on the next boot). Screensaver idle time set to 0
+  (`defaults -currentHost write com.apple.screensaver idleTime -int 0`): the saver (Flurry,
+  also through our bundle) had covered the games on the first try.
+- Programs started from `/Volumes/Tiger/...` through a Terminal script
+  (`open -a Terminal`); `DYLD_FALLBACK_LIBRARY_PATH` pointing at the Tiger volume's
+  `libtcl8.3.dylib` for Tux Racer; stdin from /dev/null (Doom 3 blocks reading the console).
+- Seen on the monitor grab (not played): Tux Racer 0.61 title in a window, renderer 0x21a00
+  with the window as a kext surface; Quake 3 reaches its CD-key screen; Pirates! reaches its
+  launcher and the title art after Play; Doom 3 demo reaches the main menu. UT2004 stops
+  at "insert the disc" (its Tiger crack does not cover this run). Not driven past menus: no
+  frame rates, no in-game scene was looked at.
