@@ -6616,3 +6616,12 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   launcher and the title art after Play; Doom 3 demo reaches the main menu. UT2004 stops
   at "insert the disc" (its Tiger crack does not cover this run). Not driven past menus: no
   frame rates, no in-game scene was looked at.
+
+## 2026-10-15: Quake 3 timedemo on 10.5.9
+
+- `tools/guest/q3timedemo.sh`'s command (demo `four`, 1920x1080, fullscreen, `r_mode -1`) run
+  from a Terminal script against the Tiger volume's `Quake 3` folder on the Leopard G5 with
+  the gated kext and the 10.5 bundle: **1260 frames, 6.8 seconds: 185.6 fps** (Tiger journal
+  of 2026-10-06: 148 fps). GL_RENDERER `ATI Radeon HD 7570`, Mesa 26.2.4. The game exited by
+  itself. One run; nothing looked at on the monitor during it, so the picture's correctness
+  is not claimed. "Error loading dll" lines are the game falling back to its QVMs.
