@@ -6625,3 +6625,14 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   of 2026-10-06: 148 fps). GL_RENDERER `ATI Radeon HD 7570`, Mesa 26.2.4. The game exited by
   itself. One run; nothing looked at on the monitor during it, so the picture's correctness
   is not claimed. "Error loading dll" lines are the game falling back to its QVMs.
+
+## 2026-10-15: Quake 4 timedemo on 10.5.9: the game does not start
+
+- `tools/guest/q4netdemo.sh`'s run (copy of the game's `q4base` config into Leopard's
+  `~/Library/Application Support/Quake4`, `playNetTimeDemo id_demo001`) from a Terminal script:
+  the process dies at once, also when run from ssh with `+quit`: SIGBUS, `KERN_PROTECTION_FAILURE
+  at 0`, thread 0 in a module initialiser of the executable (`com.aspyr.Quake4 1.2.0 2386`,
+  called from `dyld ImageLoaderMachO::doModInitFunctions`, pc 0). That is before `main`
+  and before any GL call: the binary itself (the patched Universal build from the Tiger
+  Desktop) is not usable on 10.5.9; nothing to do with the driver. No timedemo number.
+  Not tried: the build from another source, or finding which symbol the initialiser calls.
