@@ -6636,3 +6636,17 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   and before any GL call: the binary itself (the patched Universal build from the Tiger
   Desktop) is not usable on 10.5.9; nothing to do with the driver. No timedemo number.
   Not tried: the build from another source, or finding which symbol the initialiser calls.
+
+## 2026-10-15: Tiger regression check of the release built from `c685779`
+
+- G5 switched from Leopard to Tiger (`bless --mount /Volumes/Tiger --setBoot`), the Tiger
+  package `RadeonNI-20261015-c685779.zip` installed with `install.sh --accel` (no hwcursor),
+  restart. Tiger 10.4.11, kext loaded, accelerator registered, desktop whole on a grab.
+- `system_profiler`: Quartz Extreme Supported, Core Image Supported, `qe`: "Quartz Extreme in
+  use". Suite on the card: `sharetest`, `appletest` PASS; `mtex` 9d9d9d, `occtest` 400/0/0,
+  `packedtest` all drawn ok (the same numbers as on 10.5.9).
+- Quake 3 timedemo `four`, 1920x1080 (`tools/guest/q3timedemo.sh`): **1260 frames, 8.8 s,
+  143.2 fps** (journal of 2026-10-06: 148; one run, within what runs vary by). Game quit by
+  itself. Nothing was looked at on the monitor during the run beyond the desktop grab.
+- No regression seen from the per-OS engine layout, the bind change and the surface gate
+  (`SurfaceGate` false on 10.4). Not rerun: the games of `docs/COMPAT.md`, sleep, hot-plug.
