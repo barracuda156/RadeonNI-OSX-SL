@@ -6988,3 +6988,17 @@ boot ends 14:56). That refutes the clock-gating explanation above. `--uvd` read 
 from outside the driver, never completes. Hardware VA-API decode itself works (2250 frames, 30x).
 `--uvd` now reads only the 184-odd registers radeon touches (`build/uvd-ref/uvd-known.txt`); a blind
 `--range` read of this card is not to be used.
+
+## 2026-10-18 15:09 (x86 host): UVD works without dynamic power management
+
+Clean reboot at 15:08 (software reset, no sync flood), card driverless. `RADEON_PARAMS=dpm=0 uvd-ref-linux.sh
+bind` (new `card-bind.sh` variable): `radeon.dpm` = 0, no "dpm initialized", and still `ring test on 5
+succeeded`, `UVD initialized successfully`. So the SMC and dpm are NOT needed for UVD; that theory is
+dead. The dump of the 34 known UVD/PLL registers plus the 612-register list ran fine while an ffmpeg
+VA-API decode was running (no reset). Differences of Linux (dpm=0) against our G5 state remain in the
+memory controller block: MC arbitration/timing 0x2700-0x2bff (about 45 registers, for example 0x28a0 0x08110821 vs
+0x2044a4e7), memory channel map 0x960c (0x54763210 vs 0x76543210), 0x5bc0/0x5e78/0x5eb4, 0xd02c,
+0x8c00, the 0x600-0x648 clock block, MC FB location. `build/uvd-ref/replay-final.txt` holds Linux's
+final values of those differing registers (display and FB location excluded) for a replay by value on
+a fresh post. Linux's MC values come from loading the MC microcode (TURKS_mc) and its own mc_program;
+ours come from the VBIOS POST alone.
