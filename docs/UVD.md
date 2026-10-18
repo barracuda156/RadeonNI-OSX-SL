@@ -68,9 +68,9 @@ PowerVLC 2.1.0 on the G5 decodes H.264 on the CPU (ffmpeg). 1080p H.264 drops ne
   safe; do not try on the host without the user's yes and `scripts/card-quiet.sh apply`
   (`CLAUDE.md`, host safety rules).
 - Whether decode targets must be in VRAM or may be in GART memory [unknown].
-- Performance: UVD3 decodes 1080p H.264 up to level 4.1 on Linux (VA-API users) [I]; here the
-  limit would be the CPU doing CABAC parsing... no: UVD does the entropy decoding, so the CPU only
-  parses headers [I]. Memory bandwidth of the PCIe x4 link matters only for the bitstream.
+- Performance: UVD3 decodes 1080p H.264 up to level 4.1 on Linux (VA-API users) [I]. UVD does
+  the entropy decoding too, so the CPU would only parse headers and slice boundaries [I]; the
+  PCIe x4 link carries just the bitstream.
 - Effort: large (weeks), mostly steps 2 and 5.
 
 ## Suggested order
