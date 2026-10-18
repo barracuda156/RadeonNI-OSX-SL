@@ -37,7 +37,7 @@ while :; do
             exit 4
         fi
         case $st in
-        *state=exit*) echo "== job finished: ${st#*state=}"; exit 0 ;;
+        *state=exit*) echo "== job finished: ${st#*state=}"; code=${st##*exit }; [ "$code" -eq "$code" ] 2>/dev/null && exit "$code"; exit 1 ;;
         *state=lost*) echo "== job lost without a reset (killed?)"; exit 5 ;;
         esac
     fi
