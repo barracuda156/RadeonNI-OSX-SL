@@ -7020,3 +7020,19 @@ relocation: those were repeated here in the same order without effect).
 microcode + the interrupt handler ring (`evergreen_irq_init` writes, ring and write-back word in VRAM at
 40/41 MB, `RDN_NO_IH=1` skips) still gives `UVD_STATUS` 0, also with the VRAM relocation (the IH base is set
 before the relocation there, so it names the old base). Not the missing piece either (or not alone).
+
+15:20-15:32 (x86 host, PC-driven runner, several clean reboots): the register-level search is exhausted.
+- Replay by value of Linux's pre-UVD writes (30,341 of them without display, MC timing/FB, CP/GRBM, PLL,
+  UVD, RLC, IH ranges), with and without the VRAM relocation: `UVD_STATUS` 0. With the display writes
+  (2,882) and the relocation: 0. With the GART on (`RDN_GART=1`, table at 48 MB): 0. MC microcode, RLC
+  microcode, IH ring: 0 (earlier entries). Replaying MC timing values by value reset the host.
+- New `rdn_tool replay FILE FROM TO`: the complete Linux trace (`host-all-regs.txt`, 42,583 writes plus the
+  reads) from an unposted card up to the UVD start, in order, with the waits of the UVD start and the
+  PLL, and the firmware written to VRAM 0x40000 (zero-filled window) before the HDP flush at line 39745
+  (`RDN_FW_LINE`): `UVD_STATUS` 0, no reset. Bus master set by `setpci` beforehand: 0.
+- So what makes Linux's VCPU boot is not in the MMIO stream, the firmware bytes or the card's bus
+  master bit. Left: PCI config/link state (the card trains at 2.5 GT/s "downgraded" here; Linux raises
+  the PCIe link speed in `evergreen_pcie_gen2_enable`, partly with config writes the MMIO trace does not
+  show), VRAM contents Linux writes through the aperture (not in the MMIO trace: page tables, ring/fence
+  areas), the AtomBIOS tables Linux runs from `radeon_atombios_init` besides POST (executed as MMIO, so
+  present in the trace), and the one unexplained VCPU boot at 14:12.
