@@ -7009,3 +7009,9 @@ not write those registers by value into a live card. Linux does not poke them ei
 result of `ni_mc_load_microcode` (GDDR5: MC_SEQ_MISC0 says GDDR5, MC_SEQ_SUP_CNTL run bit 0 after the
 VBIOS POST) plus `evergreen_mc_program`. `rdn_tool uvd` did not load the MC microcode (the kext does),
 so `do_uvd` now calls `rdn_mc_load_microcode` first (`RDN_NO_MC=1` skips it). Not yet run.
+
+15:15 (x86 host, fresh post, host stable): `rdn_tool uvd` with the MC microcode loaded first (trained,
+return 0) then RLC microcode, with and without the VRAM relocation, and with the firmware at VRAM
+offsets 0x40000, 0x100000 and 36 MB: `UVD_STATUS` 0 each time. The MC microcode is not the missing
+piece. The one VCPU boot of 14:12 stays unexplained (it needed neither a different offset nor the
+relocation: those were repeated here in the same order without effect).
