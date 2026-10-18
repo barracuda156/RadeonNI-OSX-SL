@@ -6697,3 +6697,30 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
 - After that, the window is white (also with `layers.acceleration.disabled`, so not only the GL
   compositor), CPU near 0, `Can't find symbol 'EGLImageTargetTexture2DOES'` in stderr only.
   Not yet explained; the same screen looked blank for PowerVLC's video (readback only).
+
+## 2026-10-17: PowerVLC's default (GLSL) video output black on 10.5.9: cause and fix
+
+- What was not the cause (each tried): the GLSL YUV shader, `uniform vec4[4]`, GL_RED/R8 and
+  unsized GL_RED textures, `GL_UNPACK_ROW_LENGTH` from client memory or a PBO, face culling,
+  VBO attributes with `glDrawElements` (`tools/guest/glshader.c`, all as expected at 704x400, in a
+  GLUT window); alpha 0 in the frame; glthread (`RDN_GLTHREAD=0`); `RDN_GLD_NO_ADOPT`,
+  `RDN_GLD_NO_BACKBUFFER`; a `glFinish` after each draw. `tools/guest/gldraw_probe.c` (a
+  DYLD_INSERT_LIBRARIES interposer) showed VLC's own draw had put real video colours in the back
+  buffer with no GL error; even a magenta clear after the draw never reached the screen.
+- Cause: the window server's `readLockOptions` on the video surface returned
+  `0xe00002c7` (unsupported) on every frame, then it fell back to `readLock` and drew nothing.
+  `tools/guest/rdnsurf.c` (`RDN_UC_SURFACE_LIST`) showed 0 surfaces with a picture buffer in the
+  kext during the default run, 1 with `--vout=macosx_gl1`. The bundle's `gldAttachDrawable` calls
+  `rdn_mesa_expect_surface` on every attach of a surface, which announces the surface to the
+  kext with width 0 (so the gate accepts it); that also takes away the buffer the context had
+  announced (`surface_store`). The default VLC output starts a 10x10 surface, resizes it to
+  704x400 and attaches again several times after that; the GL1 output does not.
+- Fix (`gld/rdn_mesa.c`): `rdn_mesa_expect_surface` does nothing when the context already stores
+  a picture for that surface. Bundle only (relinked on the host, `scripts/gld-relink.py`); no kext
+  change. Installed on the G5's Leopard volume; the old binary is
+  `/System/Library/Extensions/RadeonNIGLDriver.bundle/Contents/RadeonNIGLDriver.before-expect-fix-20261017`.
+- Result: PowerVLC 2.1.0 default output draws `fma01.avi` and its subtitle (readback grab), and
+  `rdnsurf` lists the 704x400 surface during playback. 1080p H.264 stays unplayable on the CPU
+  (frames dropped as late); that is decoding speed.
+- Likely the same cause for other programs that resize or re-attach a GL view (PowerFox's white
+  window is not yet explained).

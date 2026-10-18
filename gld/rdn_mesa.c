@@ -780,6 +780,14 @@ int rdn_mesa_expect_surface(void *gld_ctx, unsigned long surface)
 		mesa_for(c);
 	if (!c->mesa)
 		return 0;
+	/*
+	 * A program that attaches the same surface again (a resized view,
+	 * VLC's) has its picture buffer in the kext already: announcing the
+	 * surface with width 0 would take that away, and the window server's
+	 * read lock would fail from then on (it draws nothing).
+	 */
+	if (c->stored && c->surface == surface)
+		return 1;
 	return rdn_target_surface_buffer((uint32_t)surface, 0, 0, 0, 0) ? 1 : 0;
 }
 
