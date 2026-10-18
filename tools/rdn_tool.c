@@ -604,6 +604,31 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 		}
 	}
 	/*
+	 * radeon's evergreen_irq_init() writes (journal 2026-10-18): the interrupt handler ring and its
+	 * write-back word in VRAM instead of GART, enabled but with nothing routed to it.
+	 * RDN_NO_IH=1 skips it.
+	 */
+	if (!getenv("RDN_NO_IH")) {
+		uint32_t ring = 40u << 20, wb = (41u << 20) + 0x800, k;
+		uint64_t ring_mc = rdn_vram_addr(&accel, ring), wb_mc = rdn_vram_addr(&accel, wb);
+
+		for (k = 0; k < 16384; k += 4)
+			rdn_vram_write32(&accel, ring + k, 0);
+		rdn_vram_write32(&accel, wb, 0);
+		rdn_hdp_flush(&accel);
+		rdn_wreg(card, 0x546c, 0x00ffffe0);
+		rdn_wreg(card, 0x5468, rdn_rreg(card, 0x5468) & 0x10 ? 0x10 : 0);
+		rdn_wreg(card, 0x3e04, (uint32_t)(ring_mc >> 8));
+		rdn_wreg(card, 0x3e14, (uint32_t)wb_mc);
+		rdn_wreg(card, 0x3e10, (uint32_t)(wb_mc >> 32) & 0xff);
+		rdn_wreg(card, 0x3e00, 0x8001011c);
+		rdn_wreg(card, 0x3e08, 0);
+		rdn_wreg(card, 0x3e0c, 0);
+		rdn_wreg(card, 0x3e18, 0x01080010);
+		printf("IH ring set up at MC %llx, write-back %llx\n", (unsigned long long)ring_mc,
+		       (unsigned long long)wb_mc);
+	}
+	/*
 	 * Experiment: RDN_REPLAY=file RDN_REPLAY_RANGES=lo-hi[,lo-hi...] (hex byte offsets): write the
 	 * "offset value" lines of the file that fall in a range, just before the UVD start. For finding
 	 * which of the registers Linux sets that ours does not matter to UVD.
