@@ -52,6 +52,7 @@
 #include "../hw/rdn_reg.h"
 #include "../hw/rdn_uvd.h"
 #include "../hw/rdn_mc.h"
+#include "../hw/rdn_gart.h"
 #include "../hw/rdn_uvd_reg.h"
 
 #define MMIO_SIZE	0x20000
@@ -523,6 +524,46 @@ static int do_accel(struct linux_card *lc, struct rdn_card *card)
  * (SUMO_uvd.bin in the firmware directory), a ring test, and one indirect buffer that writes
  * UVD_CONTEXT_ID. `flags` are RDN_UVD_F_*. Needs a posted card.
  */
+/*
+ * Experiment: replay a register trace ("W 0xOFFSET 0xVALUE" / "R 0xOFFSET 0xVALUE" lines, the
+ * format of build/uvd-ref/host-all-regs.txt) from line FROM to line TO onto the card, in order, with a
+ * short pause after every access and a longer one after clock and reset registers. Reads are
+ * done too (they flush posted writes). Journal 2026-10-18.
+ */
+static int do_replay(struct rdn_card *card, const char *file, unsigned from, unsigned to)
+{
+	FILE *f = fopen(file, "r");
+	char line[128];
+	unsigned n = 0, w = 0;
+
+	if (!f) {
+		perror(file);
+		return -1;
+	}
+	while (fgets(line, sizeof(line), f)) {
+		char kind;
+		unsigned long off, val;
+
+		if (n++ < from)
+			continue;
+		if (n > to)
+			break;
+		if (sscanf(line, "%c %lx %lx", &kind, &off, &val) != 3)
+			continue;
+		if (kind == 'W') {
+			rdn_wreg(card, (uint32_t)off, (uint32_t)val);
+			w++;
+		} else {
+			(void)rdn_rreg(card, (uint32_t)off);
+		}
+		os_delay_us(NULL, (off >= 0x600 && off < 0x900) || off == 0x5480 ? 2000 : 20);
+	}
+	fclose(f);
+	printf("replayed %u writes of lines %u-%u; UVD_STATUS %08x\n", w, from, n,
+	       (unsigned)rdn_rreg(card, UVD_STATUS));
+	return 0;
+}
+
 static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 {
 	static uint8_t uvd_fw[300000];
@@ -602,6 +643,13 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 			rdn_wreg(card, 0x3f00, 1);
 			printf("RLC microcode loaded and started\n");
 		}
+	}
+	/* Experiment: RDN_GART=1 switches the GART on as radeon has it at this point (journal 2026-10-18) */
+	if (getenv("RDN_GART")) {
+		static struct rdn_gart gart;
+		int gr = rdn_gart_enable(&gart, &accel, 48u << 20, 0xa0000);
+
+		printf("gart enable returned %d\n", gr);
 	}
 	/*
 	 * radeon's evergreen_irq_init() writes (journal 2026-10-18): the interrupt handler ring and its
@@ -909,6 +957,10 @@ int main(int argc, char **argv)
 			fclose(lc.trace);
 			lc.trace = NULL;
 		}
+	} else if (!strcmp(cmd, "replay")) {
+		/* replay FILE FROM TO */
+		ret = do_replay(&card, argv[optind + 1], (unsigned)strtoul(argv[optind + 2], NULL, 0),
+				(unsigned)strtoul(argv[optind + 3], NULL, 0));
 	} else if (!strcmp(cmd, "uvd")) {
 		if (trace) {
 			lc.trace = fopen(trace, "w");
