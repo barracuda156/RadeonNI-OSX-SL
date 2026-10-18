@@ -6928,3 +6928,17 @@ exactly in address as well: still `UVD_STATUS` 0, as with 0x100000. CYPRESS_uvd.
 Placement, firmware contents and the UVD registers are therefore ruled out; what is left is state
 outside the UVD block that Linux's `evergreen_startup` sets before `uvd_init` (RLC, interrupts, MC
 microcode, SMC) or a read of Linux's post-init UVD state with radeon bound.
+
+## 2026-10-18 (x86 host): RLC_CNTL=1 makes the UVD VCPU boot; the host reset shortly after
+
+Linux's `evergreen_startup` runs IH init, RLC resume (768-word ucode upload, then `RLC_CNTL` 0x3f00 = 1)
+and the CP before `uvd_v1_0_init`; ours ran none of them. Replaying Linux's RLC/IH writes (0x3e00-0x3fff,
+1547 writes, `build/uvd-ref/replay-rlc-ih.txt`) before the UVD start gave `UVD_STATUS` 2 (VCPU alive).
+Bisect: writing only `RLC_CNTL` (0x3f00: 0 then 1) is enough (`UVD_STATUS` 2, 2 writes). The ring test
+still failed (`UVD_CONTEXT_ID` stayed 0xCAFEDEAD). Replaying only the ucode port writes 0x3f2c-0x3f30
+(1537 writes, no RLC enable) returned -60 and `UVD_STATUS` 0.
+A third run (`3f00-3f20,3f2c-3f4c`) printed nothing, the next `rdn_tool uvd` said "card is not posted",
+and the host reset at about 14:12:46 (journal of the previous boot ends there; no sync-flood evidence
+read yet). Candidate causes: the half-started RLC (ucode uploaded, parts of its state written without
+the rest) or the UVD VCPU running with a ring it cannot use. Nothing else was running on the card.
+`hw/rdn_uvd.c` now writes `RLC_CNTL`=1 before the UVD start (uncommitted experiment).
