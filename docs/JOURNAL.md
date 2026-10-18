@@ -6804,3 +6804,26 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   window, low clocks, no PLL, boot clocks), nothing visible from inside the kext explains the
   silent VCPU: sequence, clocks, addresses (VRAM and GART) and power-management bits all match or
   were varied. Next: Linux's behaviour on this G5 (ArchPOWER from files on the Leopard volume).
+
+## 2026-10-18: ArchPOWER from files on the Leopard volume: GRUB loads, the kernel hangs on the G5
+
+- Built, from downloaded ArchPOWER `powerpc64` packages only (nothing compiled; ELFv2 userland is
+  intended): a 189 MB initramfs root (bash, util-linux, kmod, iproute2, openssh, dhcpcd, nvsetenv,
+  the `linux-ppc64` 7.1.4 modules, radeon firmware), `vmlinuz` (ELF64 BE), and GRUB's own
+  `powerpc-ieee1275` image made with the host's `grub-mkimage` from the packaged modules.
+  `/init` restores `boot-device` first, brings up tg3 and sshd, and does NOT load radeon (that would
+  be by hand over ssh). Files: `/linux/{grub.elf,vmlinuz,initramfs.img,grub/grub.cfg}` on the
+  Leopard volume, staged copy in `~/linux-stage` on the G5; build tree in `build/archpower/`.
+- `nvram boot-device='first-boot/@0:5,\linux\grub.elf first-boot/@0:5,\\:tbxi'` (the Leopard entry
+  as the fallback; the original, `first-boot/@0:5,\\:tbxi`, is in `~/linux-stage/boot-device.before.txt`).
+  The G5 rebooted: **Open Firmware loaded GRUB from the HFS+ volume and GRUB started the kernel**.
+  The user saw the console stop after `smp_core99_bringup_done`; the G5 never appeared on the
+  network (no ARP entry for its MAC in ~3 min) and its fan went to 100 %, so the user powered it off.
+  Cause not known: the next initcalls, the initramfs unpack (584 MB), or the G5's thermal/fan
+  control missing in this kernel are all possible; no console output was captured.
+- **State left on the G5: `boot-device` still points at `/linux/grub.elf` first**, so every boot
+  runs this kernel again (the Leopard fallback is only used when the first entry cannot be
+  loaded). Restore from Open Firmware (Cmd-Opt-O-F at power-on):
+  `setenv boot-device first-boot/@0:5,\\:tbxi` then `mac-boot`.
+- Decision (user): the 7570 goes into the server next; the ground truth for UVD is taken there, with
+  the server's own Linux (`scripts/uvd-ref-linux.sh`, `tools/host/pci_regs.py`).
