@@ -50,6 +50,8 @@
 #include "../hw/rdn_mode.h"
 #include "../hw/rdn_pattern.h"
 #include "../hw/rdn_reg.h"
+#include "../hw/rdn_uvd.h"
+#include "../hw/rdn_uvd_reg.h"
 
 #define MMIO_SIZE	0x20000
 #define ROM_MAX		0x20000
@@ -516,6 +518,80 @@ static int do_accel(struct linux_card *lc, struct rdn_card *card)
 }
 
 /*
+ * UVD: the engine as the kext starts it (3D engine first), then rdn_uvd_init() with the firmware
+ * (SUMO_uvd.bin in the firmware directory), a ring test, and one indirect buffer that writes
+ * UVD_CONTEXT_ID. `flags` are RDN_UVD_F_*. Needs a posted card.
+ */
+static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
+{
+	static uint8_t uvd_fw[300000];
+	struct rdn_accel_fw fw;
+	struct rdn_accel accel;
+	struct rdn_uvd uvd;
+	volatile void *aperture;
+	struct stat st;
+	char path[512];
+	uint32_t ref = 0, seq = 0, fw_size;
+	FILE *f;
+	int fd, r;
+
+	if (!rdn_card_posted(card)) {
+		fprintf(stderr, "card is not posted; run 'post' first\n");
+		return -1;
+	}
+	fw.pfp = read_fw("TURKS_pfp.bin", &fw.pfp_size);
+	fw.me = read_fw("TURKS_me.bin", &fw.me_size);
+	snprintf(path, sizeof(path), "%s/SUMO_uvd.bin", fw_dir);
+	f = fopen(path, "rb");
+	if (!fw.pfp || !fw.me || !f) {
+		perror(f ? "microcode" : path);
+		return -1;
+	}
+	fw_size = (uint32_t)fread(uvd_fw, 1, sizeof(uvd_fw), f);
+	fclose(f);
+	fd = sysfs_open(lc, "resource0", O_RDWR);
+	if (fd < 0 || fstat(fd, &st))
+		return -1;
+	aperture = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (aperture == MAP_FAILED) {
+		perror("mmap aperture");
+		return -1;
+	}
+	r = rdn_accel_init(&accel, card, aperture, (uint32_t)st.st_size, &fw,
+			   ACCEL_RING_OFFSET, ACCEL_RING_BYTES,
+			   RDN_BIG_ENDIAN ? !other_order : other_order);
+	printf("accel init returned %d\n", r);
+	if (r)
+		return r;
+	if (rdn_uvd_ref_clock(card, &ref)) {
+		fprintf(stderr, "no PLL reference clock in the VBIOS\n");
+		return -1;
+	}
+	printf("uvd: firmware %u bytes, reference clock %u0 kHz, flags 0x%x\n", (unsigned)fw_size,
+	       (unsigned)ref, (unsigned)flags);
+	r = rdn_uvd_init(&uvd, &accel, ref, uvd_fw, fw_size, RDN_UVD_DEFAULT_HANDLES,
+			 36u << 20, (36u << 20) + 0x122000, 4096, flags);
+	printf("uvd init returned %d; UVD_STATUS %08x\n", r, (unsigned)rdn_rreg(card, UVD_STATUS));
+	if (!r) {
+		uint32_t ib = (36u << 20) + 0x140000;
+
+		rdn_vram_write32(&accel, ib, RDN_UVD_PACKET0(UVD_CONTEXT_ID, 0));
+		rdn_vram_write32(&accel, ib + 4, 0x600DF00D);
+		r = rdn_uvd_wake(&uvd);
+		if (!r)
+			r = rdn_uvd_ib_submit(&uvd, rdn_vram_addr(&accel, ib), 2, &seq);
+		if (!r)
+			r = rdn_uvd_fence_wait(&uvd, seq, 1000);
+		printf("uvd IB: %d, UVD_CONTEXT_ID %08x\n", r, (unsigned)rdn_rreg(card, UVD_CONTEXT_ID));
+		(void)rdn_uvd_idle(&uvd);
+		rdn_uvd_fini(&uvd);
+	}
+	munmap((void *)aperture, st.st_size);
+	close(fd);
+	return r;
+}
+
+/*
  * Save what CRTC 0 scans out (32 bpp, at aperture offset 0) as a PPM file,
  * so that the picture can be looked at without the monitor.
  */
@@ -617,7 +693,7 @@ int main(int argc, char **argv)
 	}
 	if (optind >= argc) {
 		fprintf(stderr, "usage: %s [-s addr] [-b vbios] [-t trace] [-f fwdir] [-n] "
-			"status|post|vramtest|edid [file]|modeset|accel|grab [file]|peek REG...\n", argv[0]);
+			"status|post|vramtest|edid [file]|modeset|accel|uvd [flags]|grab [file]|peek REG...\n", argv[0]);
 		return 2;
 	}
 	cmd = argv[optind];
@@ -710,6 +786,17 @@ int main(int argc, char **argv)
 				perror(trace);
 		}
 		ret = do_accel(&lc, &card);
+		if (lc.trace) {
+			fclose(lc.trace);
+			lc.trace = NULL;
+		}
+	} else if (!strcmp(cmd, "uvd")) {
+		if (trace) {
+			lc.trace = fopen(trace, "w");
+			if (!lc.trace)
+				perror(trace);
+		}
+		ret = do_uvd(&lc, &card, optind + 1 < argc ? (uint32_t)strtoul(argv[optind + 1], NULL, 0) : 0);
 		if (lc.trace) {
 			fclose(lc.trace);
 			lc.trace = NULL;
