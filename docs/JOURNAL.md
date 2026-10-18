@@ -7076,3 +7076,11 @@ answers), 0x60c/0x61c/0x208/0x29f8/0x2a48 (SMC state). The final UVD reads: UVD_
 expected 2 got 0, as UVD_STATUS. Nothing UVD-related differs before the VCPU start. The trace is of a
 dpm=1 run; since dpm=0 also boots UVD, the next trace is taken with the minimal radeon configuration
 (no SMC in it): the old trace is kept as `traces/uvd-ref-host-mmiotrace-dpm1.log`.
+
+16:00 (x86 host, clean boot, fresh post): `RDN_PM=1` (`rdn_pm_set`: boot state sclk 100 MHz / mclk 150 MHz
+to the PowerPlay performance state 650 / 800 MHz, 1.0 V, reads back 649.96 MHz) before the UVD init:
+`UVD_STATUS` 0. The value check of the minimal-config trace (replay with `RDN_REPLAY_CHECK`) had
+shown a different CG_SPLL_STATUS (0x60c, 226 reads, expected 0x40114, got 0x60010): the engine clock
+differs after a replay, but setting it properly does not wake the VCPU either.
+QEMU question: no cause found for the resets; they occur with the card idle and with nothing running too
+(12:51, 14:31), so QEMU passthrough is not shown to be special.
