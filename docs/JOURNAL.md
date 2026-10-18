@@ -6791,3 +6791,16 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   (0x0700ffc1 / 0x0700ffcf), 0x4a0-0x4d8 (power gating? unnamed in the headers).
 - UVD at the boot clocks (`rdnuc power boot`: engine 100 MHz, memory 150 MHz), then init: still no
   answer; performance state restored afterwards (650/800 MHz).
+
+## 2026-10-18: UVD variants batch on the G5: power management and GART memory, no change
+
+- Kext with `RDN_UVD_F_PM_GLOBAL` (GENERAL_PWRMGT |= 3), `RDN_UVD_F_PM_SCLK` (SCLK_PWRMGT_CNTL |=
+  0x4080) and `RDN_UVD_F_GART` (VCPU region and ring in system memory through the GART at GPU
+  0x40001000, so bits 32-39 are zero as in Linux's trace). `rdnuvd init` with flags 160 (global),
+  416 (global + sclk), 544 (GART), 928 (all three, + keep clocks): every one fails as before,
+  `UVD_STATUS` 0, no hang. The power registers were put back after each failure (checked: 0x63c
+  0x7604, 0x644 0xf3812, 0x648 0x0700ffcf).
+- With the earlier negatives (cache register offsets fixed, memory first, offsets as addresses, v1
+  window, low clocks, no PLL, boot clocks), nothing visible from inside the kext explains the
+  silent VCPU: sequence, clocks, addresses (VRAM and GART) and power-management bits all match or
+  were varied. Next: Linux's behaviour on this G5 (ArchPOWER from files on the Leopard volume).
