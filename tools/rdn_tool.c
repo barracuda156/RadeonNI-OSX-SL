@@ -52,6 +52,7 @@
 #include "../hw/rdn_reg.h"
 #include "../hw/rdn_uvd.h"
 #include "../hw/rdn_mc.h"
+#include "../hw/rdn_pm.h"
 #include "../hw/rdn_gart.h"
 #include "../hw/rdn_uvd_reg.h"
 
@@ -705,6 +706,24 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 			rdn_wreg(card, 0x3f00, 1);
 			printf("RLC microcode loaded and started\n");
 		}
+	}
+	/*
+	 * Experiment: RDN_PM=1 moves the card from its slow boot state to the VBIOS's fastest PowerPlay state
+	 * (voltage, engine clock, memory clock), as radeon does before it brings UVD up (journal 2026-10-18).
+	 */
+	if (getenv("RDN_PM")) {
+		struct rdn_pm_state from, to;
+		int pr = rdn_pm_boot_state(card, &from);
+		uint32_t sc = 0, mc2 = 0;
+
+		if (!pr)
+			pr = rdn_pm_performance_state(card, &to);
+		if (!pr)
+			pr = rdn_pm_set(card, &from, &to, RDN_PM_ALL);
+		rdn_pm_get_clocks(card, &sc, &mc2);
+		printf("power: boot sclk %u mclk %u -> sclk %u mclk %u vddc %u (result %d), now sclk %u mclk %u\n",
+		       (unsigned)from.sclk, (unsigned)from.mclk, (unsigned)to.sclk, (unsigned)to.mclk,
+		       (unsigned)to.vddc, pr, (unsigned)sc, (unsigned)mc2);
 	}
 	/* Experiment: RDN_GART=1 switches the GART on as radeon has it at this point (journal 2026-10-18) */
 	if (getenv("RDN_GART")) {
