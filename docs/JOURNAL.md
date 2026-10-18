@@ -7036,3 +7036,19 @@ before the relocation there, so it names the old base). Not the missing piece ei
   show), VRAM contents Linux writes through the aperture (not in the MMIO trace: page tables, ring/fence
   areas), the AtomBIOS tables Linux runs from `radeon_atombios_init` besides POST (executed as MMIO, so
   present in the trace), and the one unexplained VCPU boot at 14:12.
+
+15:33-15:39 (x86 host): the trace-level replays also fail, so nothing the MMIO trace shows is the cause.
+- PCI config of the card with radeon bound against unbound: Command (bus master, INTx disable), MSI
+  enabled, link at 5 GT/s (the G5 is Gen1, so the link speed cannot be what matters there). Nothing else.
+- Linux's UVD window read back from VRAM 0x40000 (radeon running UVD): the firmware matches the file
+  except 40 bytes at offset 320 and data regions after it that the running VCPU writes itself.
+- The mmiotrace also holds the writes to the UVD window (~985k byte writes) and to the 2 MB GART table
+  at VRAM 0x162000 (262k 8-byte writes). Timed replay of the complete BAR2 trace (the original
+  timestamps for every pause, `host-all-regs-timed.txt`, 42,583 writes) with the firmware in place before
+  the HDP flush: `UVD_STATUS` 0. The same with the GART table writes merged in time order
+  (`trace-with-gart.txt`, 42,594 writes + 262,448 table writes): 0. No reset in any of these.
+  (A 4 KB page at 0x362000 is mapped but not written in the trace.)
+So the complete register stream of radeon (including its AtomBIOS POST), the firmware, the page table,
+the PCI command register and radeon's timing do not wake the VCPU on a card that Linux wakes. The
+remaining differences are not visible to these tools: MMIO reads with side effects whose values we
+cannot force, whatever the CPU side does between accesses, and the unexplained single boot of 14:12.
