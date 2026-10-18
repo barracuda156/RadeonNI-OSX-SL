@@ -10,6 +10,10 @@
 #   scripts/uvd-ref-linux.sh dump       registers to build/uvd-ref/linux-regs.txt (read only)
 #   scripts/uvd-ref-linux.sh decode F   ffmpeg through VA-API (Mesa's r600 UVD) on file F
 #   scripts/uvd-ref-linux.sh compare    Linux's registers against the G5's (build/uvd-ref)
+#   scripts/uvd-ref-linux.sh trace      bind radeon with the kernel's mmiotrace on: every register
+#                                       access of radeon's init to traces/uvd-ref-host-mmiotrace.log
+#                                       (MMIOTRACE TAKES ALL CPUS BUT ONE OFFLINE until it is
+#                                       switched off again at the end of this command; the user's yes)
 #
 # Host rules (CLAUDE.md): the card goes in the CPU-attached x16 slot, the host is NOT rebooted
 # by this script, radeon is blacklisted (unbinding it once oopsed the kernel): this only ever
@@ -55,6 +59,24 @@ decode)
     dev=$(ls /dev/dri/renderD* | tail -1)
     echo "render node: $dev"
     ffmpeg -hide_banner -hwaccel vaapi -hwaccel_device "$dev" -hwaccel_output_format vaapi -i "$f" -t 20 -f null - 2>&1 | tail -15
+    ;;
+trace)
+    need_card
+    t=/sys/kernel/tracing
+    [ -d $t ] || { echo "no tracefs" >&2; exit 1; }
+    grep -qw mmiotrace $t/available_tracers || { echo "no mmiotrace tracer" >&2; exit 1; }
+    "$root/scripts/card-quiet.sh" apply > /dev/null
+    sudo sh -c "echo 131072 > $t/buffer_size_kb; echo nop > $t/current_tracer; echo > $t/trace; echo mmiotrace > $t/current_tracer; echo 1 > $t/tracing_on"
+    echo "mmiotrace on ($(nproc) CPUs online now)"
+    # the module load and the driver's init; the card is bound and stays bound
+    "$root/scripts/card-bind.sh" radeon > /dev/null || true
+    sleep 15
+    sudo sh -c "echo 0 > $t/tracing_on; cat $t/trace > $root/traces/uvd-ref-host-mmiotrace.log; echo nop > $t/current_tracer; echo 0 > $t/buffer_size_kb"
+    sudo chown "$(id -u):$(id -g)" "$root/traces/uvd-ref-host-mmiotrace.log"
+    # bring every CPU back online (mmiotrace takes them down)
+    for c in /sys/devices/system/cpu/cpu[1-9]*/online; do echo 1 | sudo tee "$c" > /dev/null 2>&1 || true; done
+    echo "mmiotrace off, $(nproc) CPUs online"
+    wc -l "$root/traces/uvd-ref-host-mmiotrace.log"
     ;;
 compare)
     python3 -I - "$out" <<'PY'
