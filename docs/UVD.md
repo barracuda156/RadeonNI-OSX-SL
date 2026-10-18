@@ -184,3 +184,30 @@ PowerVLC 2.1.0 on the G5 decodes H.264 on the CPU (ffmpeg). 1080p H.264 drops ne
   run in hwaccel mode (VDPAU-style: it parses, then hands `VdpPictureInfoH264` and the slice
   bytes to a callback), and that works the same for PowerVLC and for a QuickTime component that
   links libavcodec dynamically (LGPL: linked and shipped unmodified, not copied).
+
+## Kext path, state of 2026-10-17 (nothing run on the card yet)
+
+- `hw/rdn_uvd.c` / `rdn_uvd.h` / `rdn_uvd_reg.h`: clocks (UPLL), firmware copy, memory window, VCPU
+  start, ring, indirect buffer submit with the VCPU's fence write, stop. Ported from Linux
+  `uvd_v1_0.c`, `uvd_v2_2.c`, `radeon_uvd.c`, `evergreen.c`. `tests/uvd_model.c` runs it against a
+  model of the block natively and under `qemu-ppc` (identical output) and reads the PLL reference
+  clock (27 MHz) from the real VBIOS. The model only checks order and byte order.
+- The big-endian question is answered by Linux's own code: on a big-endian host
+  `UVD_LMI_SWAP_CNTL` is 0xa (swap "8 in 32" for the ring and indirect buffers only) and
+  `UVD_MP_SWAP_CNTL` 0. Commands are therefore in host order, messages and bitstreams are not
+  swapped (little-endian words, plain bytes).
+- Kext: `RDN_UC_UVD_INIT`, `RDN_UC_UVD_SUBMIT`, `RDN_UC_UVD_FENCE_WAIT`, `RDN_UC_UVD_INFO`
+  (`hw/rdn_user.h`). Inert unless the personality has `FW_UVD` (the firmware as in the file) and a
+  program calls init: nothing touches UVD at load. A failed start is not retried until the kext
+  is loaded again. The submit method does not yet check the addresses inside a UVD message; it only
+  accepts an indirect buffer inside the client heap.
+- `tools/guest/rdnuvd.c`: `info`, `init`, `test` (runs one indirect buffer that writes
+  `UVD_CONTEXT_ID` and waits for its fence), `regs`. Builds on the G5 itself.
+- Built: Tiger kext in the Tiger guest, Leopard kext in the Leopard guest
+  (`LEOPARD_NATIVE=1 scripts/leopard.sh build`, `check`: 0 unknown symbols).
+- Install on the G5 without repackaging: stage in `~/uvd-test/` (new `RadeonNI`, `SUMO_uvd.bin`,
+  `install-uvd.sh`, `rdnuvd`); `sudo ./install-uvd.sh` keeps the old binary and plist as
+  `RadeonNI.before-uvd-20261017` and `Info.plist.before-uvd-20261017` in the kext's `Contents`,
+  adds `FW_UVD` (the perl edit was tried on a copy: valid plist), touches `Extensions`; then a
+  restart. The first `rdnuvd init` is the first time this card's UVD block is clocked and booted: if
+  it hangs, the G5 needs a power cycle.
