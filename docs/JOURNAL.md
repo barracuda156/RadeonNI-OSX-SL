@@ -6958,8 +6958,7 @@ the user's yes), or bisect state by cumulative runs.
 The boot of 14:25 ran 6 minutes with the card driverless, `card-quiet` applied earlier, no `rdn_tool` and no
 `radeon` bind, only the user's `systemctl status resume-after-reboot` calls; it ended at 14:31:01 with
 reset reason 0x08000800 (data fabric sync flood). So resets also happen with the card posted and idle
-(it was posted at 14:18 in the previous boot's session? no: this boot had no `post`; the card was
-driverless and unposted). That matches the 12:51 idle reset: the trigger is the card sitting in the slot
+(this boot had no `post` at all: the card sat driverless and unposted). That matches the 12:51 idle reset: the trigger is the card sitting in the slot
 on this board, not our register writes. The 14:12 reset, a few seconds after an `rdn_tool` run, was
 probably the same background event.
 The resume service itself failed at 14:26 with `exec: claude: no encontrado` (no `~/.local/bin` in
