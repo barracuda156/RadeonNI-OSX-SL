@@ -6827,3 +6827,22 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   `setenv boot-device first-boot/@0:5,\\:tbxi` then `mac-boot`.
 - Decision (user): the 7570 goes into the server next; the ground truth for UVD is taken there, with
   the server's own Linux (`scripts/uvd-ref-linux.sh`, `tools/host/pci_regs.py`).
+
+## 2026-10-18 (server): Linux's radeon brings UVD up on this card; host reset unexplained; QEMU guest prepared
+
+- The 7570 in the server, host rebooted into 6.18.57-2-lts. Before any card action the host reset
+  (journal: boot -1 ends 13:02:26, 9 s after a read-only `uvd-ref-linux.sh status`; `last -x`: crash;
+  no oops or error in the journal). Cause not known; the class is the 2026-10-05 PCIe fault. After
+  the reboot `card-quiet.sh apply` and `card-bind.sh radeon` ran in the new boot without trouble.
+- **Result: radeon on the x86 host initialised the card with UVD**: `[drm] ring test on 5 succeeded`,
+  `UVD initialized successfully`, `ib test on ring 5 succeeded` (VRAM at 0, GTT 0x40000000, dpm on,
+  PCIe gen2 enabled). So the UVD block of this card works under Linux; the G5's silent VCPU is
+  not a dead block.
+- User asked for a QEMU test instead of the host driver. `scripts/uvd-ref-qemu.sh` +
+  `scripts/uvd-guest-run.sh`: an x86 KVM guest that boots the host's kernel with a tiny
+  initramfs (host `mount`, `switch_root`, kmod and libraries, virtio and 9p modules) and runs from
+  the host's own root over 9p read-only (so it has ffmpeg, Mesa's `r600_drv_video.so`, the firmware);
+  one writable share (`build/uvd-guest/out`). `novfio` boots it without the card: works (guest.log
+  written, powers off by itself). `run [FILE]` / `trace [FILE]` need the card on vfio-pci.
+  radeon is bound on the host now and may not be unbound (it oopsed the kernel once), so the card
+  can only go to vfio after a host reboot (radeon is blacklisted there).
