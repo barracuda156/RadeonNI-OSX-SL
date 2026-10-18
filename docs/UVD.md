@@ -81,3 +81,88 @@ PowerVLC 2.1.0 on the G5 decodes H.264 on the CPU (ffmpeg). 1080p H.264 drops ne
 3. Ring test, then one H.264 I-frame message from Mesa's own `radeon_uvd.c` through a test
    program, compared with a CPU decode.
 4. Kext and winsys work, then the VLC module.
+
+## Step 1 result (2026-10-17): the firmware file
+
+- `firmware/SUMO_uvd.bin` (git-ignored, like the other microcode), extracted with
+  `zstd -dc /lib/firmware/radeon/SUMO_uvd.bin.zst`: 205080 bytes (a multiple of 4), md5
+  `51d9e0e2247c313c5bfc8fa7bb5b213d`. The redistribution licence is the same `LICENSE.radeon` as for
+  the other microcode in `firmware/`.
+- It is the **legacy raw image**: no `common_firmware_header` (Linux then sets `fw_header_present`
+  false and cannot print a version), no readable strings, 7.1 bits of entropy per byte, 205080
+  bytes with the last non-zero byte the very last one. So version and family cannot be read
+  offline; Linux reads the firmware version back from the running block. Loading it needs no
+  parsing: the whole file is copied to the start of the VCPU buffer
+  (`radeon_uvd.c`, `memcpy_toio(... uvd_fw->data, uvd_fw->size)`), followed by stack, heap and
+  the per-session areas (`RADEON_UVD_STACK_SIZE`, `RADEON_UVD_HEAP_SIZE`,
+  `RADEON_UVD_SESSION_SIZE` times the handle count) in one VRAM object.
+- Nothing was run on the card.
+
+## Architecture proposal: one kext, two front ends
+
+```
+ PowerVLC (VLC 3, ffmpeg)         QuickTime-based programs (QT Player, iTunes, Safari plug-in)
+   vlc_va_t module "radeonni"       image decompressor component "RadeonNI AVC" ('imdc', 'avc1')
+        |  parsed picture params         |  raw access units (avcC, length-prefixed NALs)
+        v                                v
+ +------------------------------------------------------------------+
+ | libradeonni-video.dylib  ("rdnvd", user space, MIT)               |
+ |   session API: open(codec, profile, w, h) / decode(picture) /     |
+ |   frame(surface, NV12 pointer or GL texture) / close              |
+ |   H.264 header parser (SPS, PPS, slice header, POC, ref lists)    |
+ |   UVD message builder = Mesa r600 radeon_uvd.c/r600_uvd.c (MIT)   |
+ |   buffers: our own allocator in the aperture (RDN_UC_ALLOC)       |
+ +--------------------------+---------------------------------------+
+                            | IOConnect (existing user client)
+                            v
+ +------------------------------------------------------------------+
+ | RadeonNI.kext                                                     |
+ |   hw/rdn_uvd.c   firmware, MC window, UPLL clocks, VCPU start,   |
+ |                  UVD ring, ring test, idle power-down             |
+ |   RDN_UC_UVD_SUBMIT(ib address, dwords) with a check that every   |
+ |       address in the message and feedback buffers is inside the    |
+ |       caller's own allocations and the first 256 MB segment;      |
+ |   RDN_UC_UVD_FENCE_WAIT, RDN_UC_UVD_CAPS (codec levels, max       |
+ |       sessions), one lock for the ring, sessions per client       |
+ +------------------------------------------------------------------+
+```
+
+- **One decode core, two doors.** Everything that knows the engine lives in the kext and
+  `rdnvd`; the two front ends only translate. PowerVLC already has ffmpeg's parsed picture state
+  (ffmpeg's hwaccel interface is VDPAU-shaped: `VdpPictureInfoH264` plus slice buffers), so its
+  module maps that to the `rdnvd` picture structure. QuickTime hands raw samples, so `rdnvd`
+  also takes an access unit and parses headers itself (needed: UVD wants POC, reference lists
+  and the like). The parser must be written fresh or taken from MIT code (Mesa's
+  `src/gallium/frontends/omx` parses H.264 headers); not from ffmpeg (LGPL), the project is MIT.
+- **Why a user-space library and not decoding in the kext.** Parsing and message building are
+  large, change often and can crash; in the kext only the engine, the ring, the address check and
+  the power state belong. The existing accelerator user client (`RDN_UC_*`, `hw/rdn_user.h`)
+  already carries allocations and fences, so the UVD calls are three more methods.
+- **Frames out.** Milestone A: the decoded NV12 surface is read back to the CPU and given to the
+  program (PowerVLC's existing output converts it on the GPU; QuickTime composes on the CPU
+  anyway). Milestone B for PowerVLC only: `rdnvd` and the GL bundle share one Mesa, so the
+  decoded surface can be sampled as a texture without a copy (like VLC's VDPAU/VA-API GL interop
+  converters).
+- **QuickTime specifics.** A component registered for `avc1` with a higher priority than
+  `QuickTimeH264`; `ImageCodecPreflight` answers "not supported" when the engine is absent or the
+  stream is outside UVD's limits (profile, level, size, interlace), so QuickTime falls back to
+  Apple's software decoder. It is a documented API (the way Perian added codecs). The component
+  is a PowerPC binary loaded by the program; the kext is the only privileged part.
+- **Safety and arbitration.** One ring, so submissions are serialised under one kext lock; each
+  user client's sessions are closed (UVD handles destroyed) when it dies, like the surface
+  clients. The kext, not the library, enforces the 256 MB rule and that a message only names
+  buffers the caller owns, as Linux's `radeon_uvd_cs_reloc` does.
+- **Big endian.** The library writes UVD messages as little-endian words (Linux uses
+  `cpu_to_le32`); the LMI/MP swap registers (`uvd_v1_0.c`, `#ifdef __BIG_ENDIAN`) are set so that
+  the firmware sees the layout it expects. Which swap setting keeps the bitstream bytes in order
+  is an open question for the first decode.
+
+### Milestones (each needs the user's yes before it runs on a card)
+
+1. Linux tool path, card quieted: UPLL clocks, firmware, VCPU start, ring test (`UVD_STATUS`).
+2. Same path: one H.264 I-frame through Mesa's `radeon_uvd.c` message builder, compared with a
+   CPU decode. Decide the swap settings here.
+3. `hw/rdn_uvd.c` in the kext, three user-client methods, a test tool on Tiger/Leopard.
+4. `rdnvd` with a command-line decoder: time 1080p H.264 against ffmpeg on the G5.
+5. PowerVLC module (readback), then zero-copy to GL.
+6. QuickTime component.
