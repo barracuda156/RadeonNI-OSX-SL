@@ -843,6 +843,26 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 	return r;
 }
 
+/* "offset value" lines of a file written to the card, for the uvdonly bisection (journal 2026-10-18) */
+static unsigned apply_file(struct rdn_card *card, const char *file)
+{
+	FILE *f = file ? fopen(file, "r") : NULL;
+	char line[128];
+	unsigned n = 0;
+
+	while (f && fgets(line, sizeof(line), f)) {
+		char *sp = strchr(line, ' ');
+
+		if (sp) {
+			rdn_wreg(card, (uint32_t)strtoul(line, NULL, 0), (uint32_t)strtoul(sp, NULL, 0));
+			n++;
+		}
+	}
+	if (f)
+		fclose(f);
+	return n;
+}
+
 /*
  * Experiment: our UVD start on a card that radeon has brought up (journal 2026-10-18). No accel
  * init: only the UVD block is touched, the firmware goes where radeon has its own copy
@@ -883,6 +903,19 @@ static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t fla
 	}
 	printf("uvdonly: vram base %llx, UVD_STATUS before %08x\n", (unsigned long long)accel.vram_base,
 	       (unsigned)rdn_rreg(card, UVD_STATUS));
+	if (getenv("RDN_APPLY"))
+		printf("uvdonly: applied %u writes of %s\n", apply_file(card, getenv("RDN_APPLY")), getenv("RDN_APPLY"));
+	if (getenv("RDN_KILL_VCPU")) {
+		/* hold the VCPU in reset and see that its status drops: only then is a later 2 a real boot */
+		uint32_t cg = rdn_rreg(card, UVD_CGC_GATE);
+
+		rdn_wreg(card, UVD_CGC_GATE, 0);
+		rdn_wreg(card, UVD_SOFT_RESET, 0x20ef);
+		os_delay_us(NULL, 10000);
+		rdn_wreg(card, UVD_STATUS, 0);
+		printf("uvdonly: VCPU held in reset: UVD_STATUS %08x (CGC_GATE was %08x)\n",
+		       (unsigned)rdn_rreg(card, UVD_STATUS), (unsigned)cg);
+	}
 	r = rdn_uvd_init(&uvd, &accel, ref, uvd_fw, fw_size, RDN_UVD_DEFAULT_HANDLES,
 			 getenv("RDN_VCPU_OFF") ? (uint32_t)strtoul(getenv("RDN_VCPU_OFF"), NULL, 0) : 0x40000,
 			 200u << 20, 4096, flags);
@@ -901,6 +934,8 @@ static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t fla
 		(void)rdn_uvd_idle(&uvd);
 		rdn_uvd_fini(&uvd);
 	}
+	if (getenv("RDN_RESTORE"))
+		printf("uvdonly: restored %u writes\n", apply_file(card, getenv("RDN_RESTORE")));
 	return r;
 }
 
