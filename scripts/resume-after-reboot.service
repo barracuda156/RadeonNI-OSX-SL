@@ -1,0 +1,16 @@
+# Install (needs the user's yes, it changes what the host does at boot):
+#   sudo cp scripts/resume-after-reboot.service /etc/systemd/system/
+#   sudo systemctl enable resume-after-reboot   (and edit the session id below)
+[Unit]
+Description=Resume the osx-gpu Claude session after a reboot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=kouta
+ExecStart=/home/kouta/osx-gpu/scripts/resume-after-reboot.sh 41a7808c-9e82-46e1-8d89-a0ca66199551
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
