@@ -530,8 +530,10 @@ static int do_accel(struct linux_card *lc, struct rdn_card *card)
  * short pause after every access and a longer one after clock and reset registers. Reads are
  * done too (they flush posted writes). Journal 2026-10-18.
  */
-static int do_replay(struct rdn_card *card, const char *file, unsigned from, unsigned to)
+static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *file, unsigned from,
+		     unsigned to)
 {
+	unsigned fw_line = getenv("RDN_FW_LINE") ? (unsigned)strtoul(getenv("RDN_FW_LINE"), NULL, 0) : 0;
 	FILE *f = fopen(file, "r");
 	char line[128];
 	unsigned n = 0, w = 0;
@@ -548,6 +550,33 @@ static int do_replay(struct rdn_card *card, const char *file, unsigned from, uns
 			continue;
 		if (n > to)
 			break;
+		if (fw_line && n - 1 == fw_line) {
+			/* the firmware where radeon has it (VRAM offset RDN_FW_OFF), the rest of its window zero */
+			static uint8_t uvd_fw[300000];
+			struct stat st;
+			char path[512];
+			uint32_t fsz, bytes, i;
+			unsigned long foff = strtoul(getenv("RDN_FW_OFF") ? getenv("RDN_FW_OFF") : "0x40000", NULL, 0);
+			volatile uint8_t *ap;
+			int fd = sysfs_open(lc, "resource0", O_RDWR);
+			FILE *ff;
+
+			snprintf(path, sizeof(path), "%s/SUMO_uvd.bin", fw_dir);
+			ff = fopen(path, "rb");
+			if (fd < 0 || fstat(fd, &st) || !ff)
+				return -1;
+			fsz = (uint32_t)fread(uvd_fw, 1, sizeof(uvd_fw), ff);
+			fclose(ff);
+			ap = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+			if (ap == MAP_FAILED)
+				return -1;
+			bytes = rdn_uvd_vcpu_bytes(fsz, RDN_UVD_DEFAULT_HANDLES);
+			for (i = 0; i < bytes; i++)
+				ap[foff + i] = i < fsz ? uvd_fw[i] : 0;
+			munmap((void *)ap, st.st_size);
+			close(fd);
+			printf("firmware (%u bytes, window %u) written at VRAM %lx\n", fsz, bytes, foff);
+		}
 		if (sscanf(line, "%c %lx %lx", &kind, &off, &val) != 3)
 			continue;
 		if (kind == 'W') {
@@ -959,7 +988,7 @@ int main(int argc, char **argv)
 		}
 	} else if (!strcmp(cmd, "replay")) {
 		/* replay FILE FROM TO */
-		ret = do_replay(&card, argv[optind + 1], (unsigned)strtoul(argv[optind + 2], NULL, 0),
+		ret = do_replay(&lc, &card, argv[optind + 1], (unsigned)strtoul(argv[optind + 2], NULL, 0),
 				(unsigned)strtoul(argv[optind + 3], NULL, 0));
 	} else if (!strcmp(cmd, "uvd")) {
 		if (trace) {
