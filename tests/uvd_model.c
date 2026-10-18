@@ -219,7 +219,7 @@ int main(int argc, char **argv)
 	regs[UVD_RBC_RB_BASE / 4] = 0;
 
 	r = rdn_uvd_init(&uvd, &accel, 2700, fw, FW_SIZE, RDN_UVD_DEFAULT_HANDLES,
-			 VCPU_OFFSET, RING_OFFSET, RING_BYTES);
+			 VCPU_OFFSET, RING_OFFSET, RING_BYTES, 0);
 	check(r == 0, "init succeeds (VCPU boots, ring test passes)");
 	check(uvd.ready, "engine ready");
 	check(memcmp(mem + VCPU_OFFSET, fw, FW_SIZE) == 0, "firmware copied byte for byte");

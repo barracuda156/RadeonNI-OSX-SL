@@ -645,9 +645,9 @@ IOReturn RadeonNIAccel::submit(UInt32 offset, UInt32 words, UInt32 *fence)
 /*
  * UVD. Nothing here runs unless a program asks (RDN_UC_UVD_INIT) and the
  * personality carries the firmware (FW_UVD); the block is not touched at
- * start. A failed bring-up is not retried until the kext is loaded again.
+ * start. A failed bring-up may be tried again (with other flags).
  */
-IOReturn RadeonNIAccel::uvdInit(UInt32 *status)
+IOReturn RadeonNIAccel::uvdInit(UInt32 flags, UInt32 *status)
 {
 	UInt32 fwSize = 0, vcpuOff = 0, ringOff = 0;
 	uint32_t ref = 0;
@@ -662,7 +662,7 @@ IOReturn RadeonNIAccel::uvdInit(UInt32 *status)
 		IOLockUnlock(fLock);
 		return kIOReturnSuccess;
 	}
-	if (!fEngineUp || fUvdFailed) {
+	if (!fEngineUp) {
 		IOLockUnlock(fLock);
 		return kIOReturnNotReady;
 	}
@@ -693,10 +693,9 @@ IOReturn RadeonNIAccel::uvdInit(UInt32 *status)
 	      (unsigned long)ref);
 	IOLockLock(fLock);
 	r = rdn_uvd_init(&fUvd, &fAccel, ref, (const uint8_t *)fw, fwSize,
-			 RDN_UVD_DEFAULT_HANDLES, vcpuOff, ringOff, 4096);
+			 RDN_UVD_DEFAULT_HANDLES, vcpuOff, ringOff, 4096, flags);
 	*status = rdn_rreg(fAccel.card, 0xf6bc);
 	if (r) {
-		fUvdFailed = true;
 		IOLockUnlock(fLock);
 		IOLog("RadeonNI: UVD did not start (%d), UVD_STATUS 0x%08lx\n", r,
 		      (unsigned long)*status);
@@ -1476,7 +1475,7 @@ IOExternalMethod *RadeonNIUserClient::getTargetAndMethodForIndex(
 		{ 0, (IOMethod)&RadeonNIUserClient::methodScreenCopy,
 		  kIOUCScalarIScalarO, 5, 1 },
 		{ 0, (IOMethod)&RadeonNIUserClient::methodUvdInit,
-		  kIOUCScalarIScalarO, 0, 1 },
+		  kIOUCScalarIScalarO, 1, 1 },
 		{ 0, (IOMethod)&RadeonNIUserClient::methodUvdSubmit,
 		  kIOUCScalarIScalarO, 2, 1 },
 		{ 0, (IOMethod)&RadeonNIUserClient::methodUvdFenceWait,
@@ -1626,9 +1625,9 @@ IOReturn RadeonNIUserClient::methodPower(UInt32 state, UInt32 what,
 	return fAccel->power(state, what, sclk, mclk, temperature);
 }
 
-IOReturn RadeonNIUserClient::methodUvdInit(UInt32 *status)
+IOReturn RadeonNIUserClient::methodUvdInit(UInt32 flags, UInt32 *status)
 {
-	return fAccel->uvdInit(status);
+	return fAccel->uvdInit(flags, status);
 }
 
 IOReturn RadeonNIUserClient::methodUvdSubmit(UInt32 offset, UInt32 words,

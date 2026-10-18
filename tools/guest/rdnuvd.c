@@ -2,10 +2,15 @@
  * rdnuvd: ask the kext to bring UVD up and look at the result.
  *
  *   rdnuvd info          the engine's state (starts nothing)
- *   rdnuvd init          RDN_UC_UVD_INIT: PLL, firmware, VCPU, ring test
+ *   rdnuvd init [flags]  RDN_UC_UVD_INIT: PLL, firmware, VCPU, ring test; flags are
+ *                        RDN_UVD_F_* of hw/rdn_uvd.h (1 UDEC config, 2 memory first, 4 v1
+ *                        window, 8 low clocks, 16 no PLL, 32 keep the clocks up on failure)
  *   rdnuvd test          init if needed, then run one indirect buffer that
  *                        writes UVD_CONTEXT_ID, wait for its fence, read it back
- *   rdnuvd regs          UVD_STATUS and a few more registers
+ *   rdnuvd regs          UVD_STATUS and the registers rdn_uvd.c programs
+ *   rdnuvd dump <fw>     after a failed init: allocate the same amount of video
+ *                        memory (the kext freed its region, and freeing does not
+ *                        clear it) and compare its start with the firmware file
  *
  * The kext does nothing about UVD unless its personality has FW_UVD, and
  * only when a program calls init: this tool is that program. Builds on the
@@ -77,7 +82,17 @@ static void show_regs(void)
 		{ "UVD_STATUS", UVD_STATUS }, { "UVD_SOFT_RESET", UVD_SOFT_RESET },
 		{ "UVD_VCPU_CNTL", UVD_VCPU_CNTL }, { "UVD_RBC_RB_RPTR", UVD_RBC_RB_RPTR },
 		{ "UVD_RBC_RB_WPTR", UVD_RBC_RB_WPTR }, { "UVD_CONTEXT_ID", UVD_CONTEXT_ID },
-		{ "CG_UPLL_FUNC_CNTL", CG_UPLL_FUNC_CNTL }, { "UVD_LMI_SWAP_CNTL", UVD_LMI_SWAP_CNTL },
+		{ "UVD_RBC_RB_BASE", UVD_RBC_RB_BASE }, { "UVD_RBC_RB_CNTL", UVD_RBC_RB_CNTL },
+		{ "UVD_LMI_CTRL", UVD_LMI_CTRL }, { "UVD_LMI_CTRL2", UVD_LMI_CTRL2 },
+		{ "UVD_LMI_ADDR_EXT", UVD_LMI_ADDR_EXT }, { "UVD_LMI_EXT40_ADDR", UVD_LMI_EXT40_ADDR },
+		{ "UVD_LMI_SWAP_CNTL", UVD_LMI_SWAP_CNTL }, { "UVD_MP_SWAP_CNTL", UVD_MP_SWAP_CNTL },
+		{ "UVD_VCPU_CACHE_OFFSET0", UVD_VCPU_CACHE_OFFSET0 }, { "UVD_VCPU_CACHE_SIZE0", UVD_VCPU_CACHE_SIZE0 },
+		{ "UVD_VCPU_CACHE_OFFSET1", UVD_VCPU_CACHE_OFFSET1 }, { "UVD_VCPU_CACHE_OFFSET2", UVD_VCPU_CACHE_OFFSET2 },
+		{ "UVD_VCPU_CHIP_ID", UVD_VCPU_CHIP_ID_REG }, { "UVD_RB_ARB_CTRL", UVD_RB_ARB_CTRL },
+		{ "UVD_CGC_GATE", UVD_CGC_GATE }, { "UVD_MASTINT_EN", UVD_MASTINT_EN },
+		{ "SRBM_SOFT_RESET", SRBM_SOFT_RESET_UVD_REG },
+		{ "CG_UPLL_FUNC_CNTL", CG_UPLL_FUNC_CNTL }, { "CG_UPLL_FUNC_CNTL_2", CG_UPLL_FUNC_CNTL_2 },
+		{ "CG_UPLL_FUNC_CNTL_3", CG_UPLL_FUNC_CNTL_3 },
 	};
 	unsigned i;
 	uint32_t v;
@@ -87,12 +102,50 @@ static void show_regs(void)
 			printf("  %-18s 0x%08x\n", r[i].name, (unsigned)v);
 }
 
+static int do_dump(const char *path)
+{
+	/* what rdn_uvd_vcpu_bytes() gives for a 205080-byte firmware and 10 handles */
+	int off = 0;
+	FILE *f = fopen(path, "rb");
+	static uint8_t fw[300000];
+	size_t n, i, bad = 0, first = (size_t)-1;
+	volatile uint8_t *m;
+
+	if (!f || !(n = fread(fw, 1, sizeof(fw), f))) {
+		fprintf(stderr, "cannot read %s\n", path);
+		return 1;
+	}
+	fclose(f);
+	if (IOConnectMethodScalarIScalarO(conn, RDN_UC_ALLOC, 2, 1, 1187840, 4096, &off)) {
+		fprintf(stderr, "no video memory\n");
+		return 1;
+	}
+	m = (volatile uint8_t *)aperture + off;
+	for (i = 0; i < n; i++)
+		if (m[i] != fw[i]) {
+			if (first == (size_t)-1)
+				first = i;
+			bad++;
+		}
+	printf("region at aperture offset 0x%x: %lu of %lu firmware bytes differ", (unsigned)off,
+	       (unsigned long)bad, (unsigned long)n);
+	if (bad)
+		printf(" (first at %lu: have %02x want %02x)", (unsigned long)first, m[first], fw[first]);
+	printf("\nfirst words there: %02x%02x%02x%02x %02x%02x%02x%02x; file: %02x%02x%02x%02x %02x%02x%02x%02x\n",
+	       m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], fw[0], fw[1], fw[2], fw[3], fw[4], fw[5], fw[6], fw[7]);
+	IOConnectMethodScalarIScalarO(conn, RDN_UC_FREE, 1, 0, off);
+	return bad != 0;
+}
+
+static int init_flags;
+
 static int do_init(void)
 {
 	int status = 0;
-	int kr = IOConnectMethodScalarIScalarO(conn, RDN_UC_UVD_INIT, 0, 1, &status);
+	int kr = IOConnectMethodScalarIScalarO(conn, RDN_UC_UVD_INIT, 1, 1, init_flags, &status);
 
-	printf("UVD init: kern_return 0x%x, UVD_STATUS 0x%08x\n", kr, (unsigned)status);
+	printf("UVD init (flags 0x%x): kern_return 0x%x, UVD_STATUS 0x%08x\n", init_flags, kr,
+	       (unsigned)status);
 	return kr;
 }
 
@@ -128,6 +181,8 @@ int main(int argc, char **argv)
 {
 	const char *cmd = argc > 1 ? argv[1] : "info";
 
+	if (argc > 2 && !strcmp(cmd, "init"))
+		init_flags = (int)strtoul(argv[2], NULL, 0);
 	if (open_accel())
 		return 1;
 	if (!strcmp(cmd, "info"))
@@ -136,10 +191,12 @@ int main(int argc, char **argv)
 		return do_init() ? 1 : 0;
 	else if (!strcmp(cmd, "test"))
 		return do_test();
+	else if (!strcmp(cmd, "dump") && argc > 2)
+		return do_dump(argv[2]);
 	else if (!strcmp(cmd, "regs"))
 		show_regs();
 	else {
-		fprintf(stderr, "usage: rdnuvd info | init | test | regs\n");
+		fprintf(stderr, "usage: rdnuvd info | init | test | regs | dump <firmware>\n");
 		return 2;
 	}
 	return 0;

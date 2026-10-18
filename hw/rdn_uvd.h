@@ -32,11 +32,23 @@
 #define RDN_UVD_VCLK		53300
 #define RDN_UVD_DCLK		40000
 
+/*
+ * Start-up variants for finding out what a card needs (rdn_uvd_init's
+ * `flags`); 0 is Linux's sequence for Turks.
+ */
+#define RDN_UVD_F_UDEC_CONFIG	(1 << 0)	/* UVD_UDEC_*_ADDR_CONFIG from GB_ADDR_CONFIG, as evergreen_gpu_init() */
+#define RDN_UVD_F_MEM_FIRST	(1 << 1)	/* program the memory window before the clocks go up */
+#define RDN_UVD_F_V1_MEM	(1 << 2)	/* uvd_v1_0_resume()'s window: +16, UVD_FW_START */
+#define RDN_UVD_F_LOW_CLOCKS	(1 << 3)	/* 100/100 MHz, as for pre-RV740 */
+#define RDN_UVD_F_NO_PLL	(1 << 4)	/* leave the PLL in bypass: the VCPU runs on the base clock */
+#define RDN_UVD_F_KEEP_CLOCKS	(1 << 5)	/* on failure leave the clocks up (registers can then be read) */
+
 struct rdn_uvd {
 	struct rdn_accel *accel;
 	uint32_t ref_freq;	/* the PLL's reference clock, 10 kHz units */
 	uint32_t handles;	/* sessions the firmware may hold */
 	uint32_t fw_size;
+	uint32_t flags;
 
 	/* Where things are, as byte offsets in the aperture. */
 	uint32_t vcpu_offset;	/* firmware, heap, stack, sessions */
@@ -81,6 +93,8 @@ int rdn_uvd_calc_dividers(uint32_t ref_freq, uint32_t vclk, uint32_t dclk,
 /*
  * Copy the firmware (as in the file), raise the clocks, program the
  * memory window, boot the VCPU, test the ring, lower the clocks again.
+ * `flags`: RDN_UVD_F_*. On failure the registers are logged (with the
+ * clocks still up) before the block is stopped.
  * `accel` must have the aperture mapped (rdn_accel_init() does not have to
  * have been called). All three regions must lie in one 4 GB segment of
  * video memory and `vcpu_offset` within the first 256 MB. Returns 0 or
@@ -89,7 +103,7 @@ int rdn_uvd_calc_dividers(uint32_t ref_freq, uint32_t vclk, uint32_t dclk,
 int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
 		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,
-		 uint32_t ring_bytes);
+		 uint32_t ring_bytes, uint32_t flags);
 void rdn_uvd_fini(struct rdn_uvd *uvd);
 
 /*

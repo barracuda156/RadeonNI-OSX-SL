@@ -345,8 +345,10 @@ static void program_memory(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
 	uint64_t gpu = uvd->accel->vram_base + uvd->vcpu_offset;
-	uint64_t addr = gpu >> 3;
-	uint32_t size = PAGE_UP(uvd->fw_size + 4) >> 3;
+	bool v1 = uvd->flags & RDN_UVD_F_V1_MEM;
+	/* uvd_v1_0_resume() starts 16 units (128 bytes) in and sizes the firmware without the +4 */
+	uint64_t addr = (gpu >> 3) + (v1 ? 16 : 0);
+	uint32_t size = PAGE_UP(v1 ? uvd->fw_size : uvd->fw_size + 4) >> 3;
 
 	/* the VCPU memory controller bits 0-27 */
 	wr(card, UVD_VCPU_CACHE_OFFSET0, (uint32_t)addr);
@@ -370,8 +372,16 @@ static void program_memory(struct rdn_uvd *uvd)
 	addr = (gpu >> 32) & 0xFF;
 	wr(card, UVD_LMI_EXT40_ADDR, (uint32_t)(addr | (0x9 << 16) | (0x1u << 31)));
 
-	/* tell firmware which hardware it is running on */
-	wr(card, UVD_VCPU_CHIP_ID_REG, RDN_UVD_CHIP_ID_TURKS);
+	if (v1) {
+		/* the firmware's first word */
+		const volatile uint8_t *b = (const volatile uint8_t *)uvd->accel->aperture +
+					    uvd->vcpu_offset;
+
+		wr(card, UVD_FW_START, b[0] | (b[1] << 8) | (b[2] << 16) | ((uint32_t)b[3] << 24));
+	} else {
+		/* tell firmware which hardware it is running on */
+		wr(card, UVD_VCPU_CHIP_ID_REG, RDN_UVD_CHIP_ID_TURKS);
+	}
 }
 
 /* uvd_v1_0_start() */
@@ -503,8 +513,37 @@ static void vcpu_stop(struct rdn_uvd *uvd)
 
 int rdn_uvd_wake(struct rdn_uvd *uvd)
 {
+	if (uvd->flags & RDN_UVD_F_NO_PLL)
+		return 0;
+	if (uvd->flags & RDN_UVD_F_LOW_CLOCKS)
+		return rdn_uvd_set_clocks(uvd->accel->card, uvd->ref_freq, 10000, 10000);
 	return rdn_uvd_set_clocks(uvd->accel->card, uvd->ref_freq, RDN_UVD_VCLK,
 				  RDN_UVD_DCLK);
+}
+
+/* What the block says when the VCPU does not come up. */
+static void uvd_dump(struct rdn_uvd *uvd, const char *why)
+{
+	struct rdn_card *card = uvd->accel->card;
+	static const struct { const char *name; uint32_t reg; } r[] = {
+		{ "SRBM_STATUS", 0x0E50 }, { "SRBM_STATUS2", 0x0EC4 },
+		{ "UVD_STATUS", UVD_STATUS }, { "UVD_SOFT_RESET", UVD_SOFT_RESET },
+		{ "UVD_VCPU_CNTL", UVD_VCPU_CNTL }, { "UVD_LMI_CTRL", UVD_LMI_CTRL },
+		{ "UVD_LMI_CTRL2", UVD_LMI_CTRL2 }, { "UVD_RB_ARB_CTRL", UVD_RB_ARB_CTRL },
+		{ "UVD_MASTINT_EN", UVD_MASTINT_EN }, { "UVD_CGC_GATE", UVD_CGC_GATE },
+		{ "UVD_SEMA_TIMEOUT_STATUS", UVD_SEMA_TIMEOUT_STATUS },
+		{ "CG_UPLL_FUNC_CNTL", CG_UPLL_FUNC_CNTL },
+		{ "CG_UPLL_FUNC_CNTL_2", CG_UPLL_FUNC_CNTL_2 },
+		{ "CG_UPLL_FUNC_CNTL_3", CG_UPLL_FUNC_CNTL_3 },
+	};
+	unsigned i;
+
+	rdn_log(card->os, RDN_LOG_ERROR, "uvd registers (%s, flags 0x%x):", why, (unsigned)uvd->flags);
+	for (i = 0; i < sizeof(r) / sizeof(r[0]); i++)
+		rdn_log(card->os, RDN_LOG_ERROR, "  %-24s 0x%04x = 0x%08x", r[i].name,
+			(unsigned)r[i].reg, (unsigned)rd(card, r[i].reg));
+	for (i = 0xf680; i <= 0xf6f8; i += 4)
+		rdn_log(card->os, RDN_LOG_ERROR, "  0x%04x = 0x%08x", i, (unsigned)rd(card, i));
 }
 
 int rdn_uvd_idle(struct rdn_uvd *uvd)
@@ -515,7 +554,7 @@ int rdn_uvd_idle(struct rdn_uvd *uvd)
 int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
 		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,
-		 uint32_t ring_bytes)
+		 uint32_t ring_bytes, uint32_t flags)
 {
 	struct rdn_card *card = accel->card;
 	volatile uint8_t *bytes = (volatile uint8_t *)accel->aperture;
@@ -542,6 +581,7 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 	uvd->ref_freq = ref_freq;
 	uvd->handles = handles;
 	uvd->fw_size = fw_size;
+	uvd->flags = flags;
 	uvd->vcpu_offset = vcpu_offset;
 	uvd->vcpu_bytes = vcpu_bytes;
 	uvd->ring_offset = ring_offset;
@@ -558,17 +598,32 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		rdn_vram_write32(accel, ring_offset + i, 0);
 	rdn_hdp_flush(accel);
 
+	if (flags & RDN_UVD_F_UDEC_CONFIG) {
+		/* evergreen_gpu_init(): the decoder's tiling follows the 3D engine's */
+		uint32_t cfg = rd(card, 0x98f8);	/* GB_ADDR_CONFIG */
+
+		wr(card, 0xEF4C, cfg);	/* UVD_UDEC_ADDR_CONFIG */
+		wr(card, 0xEF50, cfg);	/* UVD_UDEC_DB_ADDR_CONFIG */
+		wr(card, 0xEF54, cfg);	/* UVD_UDEC_DBW_ADDR_CONFIG */
+	}
+	if (flags & RDN_UVD_F_MEM_FIRST)
+		program_memory(uvd);
 	/* raise clocks while booting up the VCPU */
 	r = rdn_uvd_wake(uvd);
 	if (r)
 		goto done;
-	program_memory(uvd);
+	if (!(flags & RDN_UVD_F_MEM_FIRST))
+		program_memory(uvd);
 	r = vcpu_start(uvd);
-	if (r)
+	if (r) {
+		uvd_dump(uvd, "the VCPU did not answer");
 		goto done;
+	}
 	r = ring_test(uvd);
-	if (r)
+	if (r) {
+		uvd_dump(uvd, "ring test failed");
 		goto done;
+	}
 
 	r = ring_begin(uvd, 10);
 	if (r)
@@ -589,7 +644,8 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 	rdn_log(card->os, RDN_LOG_INFO, "uvd initialized");
 done:
 	/* lower clocks again */
-	(void)rdn_uvd_idle(uvd);
+	if (!(r && (flags & RDN_UVD_F_KEEP_CLOCKS)))
+		(void)rdn_uvd_idle(uvd);
 	return r;
 }
 

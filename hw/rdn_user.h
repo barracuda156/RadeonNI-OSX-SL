@@ -124,10 +124,11 @@ enum {
 	 * in linux-firmware's SUMO_uvd.bin); without it every UVD method
 	 * returns kIOReturnNotReady and nothing touches the block.
 	 *
-	 * RDN_UC_UVD_INIT: scalars out: UVD_STATUS afterwards. Sets the PLL,
-	 * loads the firmware, boots the VCPU and tests the ring. Done once
-	 * (a second call only reports); a card that does not answer returns
-	 * an error and leaves the block stopped.
+	 * RDN_UC_UVD_INIT: scalar in: start-up variant flags (RDN_UVD_F_*, 0
+	 * is Linux's sequence); out: UVD_STATUS afterwards. Sets the PLL,
+	 * loads the firmware, boots the VCPU and tests the ring. Once the
+	 * block is up a second call only reports; a card that does not answer
+	 * returns an error, logs the registers, and may be tried again.
 	 */
 	RDN_UC_UVD_INIT,
 	/*

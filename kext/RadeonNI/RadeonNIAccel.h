@@ -93,7 +93,7 @@ public:
 		       UInt32 *temperature);
 	IOReturn regRead(UInt32 offset, UInt32 *value);
 	/* UVD, only with the personality's FW_UVD (hw/rdn_user.h). */
-	IOReturn uvdInit(UInt32 *status);
+	IOReturn uvdInit(UInt32 flags, UInt32 *status);
 	IOReturn uvdSubmit(UInt32 offset, UInt32 words, UInt32 *fence);
 	bool uvdFenceWait(UInt32 fence, UInt32 timeoutMs);
 	IOReturn uvdInfo(UInt32 *up, UInt32 *vcpuOffset, UInt32 *ringOffset);
@@ -238,7 +238,7 @@ public:
 	IOReturn methodSurfaceList(struct rdn_user_surfaces *list, IOByteCount *size);
 	IOReturn methodSurfaceLocked(UInt32 *wid);
 	IOReturn methodRegRead(UInt32 offset, UInt32 *value);
-	IOReturn methodUvdInit(UInt32 *status);
+	IOReturn methodUvdInit(UInt32 flags, UInt32 *status);
 	IOReturn methodUvdSubmit(UInt32 offset, UInt32 words, UInt32 *fence);
 	IOReturn methodUvdFenceWait(UInt32 fence, UInt32 timeoutMs, UInt32 *reached);
 	IOReturn methodUvdInfo(UInt32 *up, UInt32 *vcpuOffset, UInt32 *ringOffset);
