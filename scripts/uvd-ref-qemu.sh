@@ -81,11 +81,22 @@ run|trace)
     [ "$drv" = vfio-pci ] || { echo "$VGA is bound to '${drv:-nothing}', not vfio-pci: scripts/card-bind.sh vfio first (needs a driverless card, i.e. a fresh boot)" >&2; exit 1; }
     [ -f "$work/initramfs.img" ] || build
     qemu_cmd "${2:-none}"
-    extra=(-device "vfio-pci,host=$VGA,multifunction=on")
+    # the topology of scripts/x86-trace-guest.sh: both functions behind a PCI bridge; QEMU runs
+    # as root (/dev/vfio/N is root-only), so the share it writes is given back afterwards
+    extra=(-device pci-bridge,id=br1,chassis_nr=1,addr=0x10
+           -device "vfio-pci,host=$VGA,bus=br1,addr=01.0"
+           -device "vfio-pci,host=$AUDIO,bus=br1,addr=02.0")
     if [ "$1" = trace ]; then
-        extra=(-device "vfio-pci,host=$VGA,multifunction=on,x-no-mmap=on" -trace 'vfio_region_*' -D "$root/traces/uvd-ref-qemu.log")
+        mkdir -p "$root/traces"
+        extra=(-device pci-bridge,id=br1,chassis_nr=1,addr=0x10
+               -device "vfio-pci,host=$VGA,bus=br1,addr=01.0,x-no-mmap=on"
+               -device "vfio-pci,host=$AUDIO,bus=br1,addr=02.0"
+               -trace vfio_region_read -trace vfio_region_write
+               -trace vfio_pci_read_config -trace vfio_pci_write_config
+               -msg timestamp=on -D "$root/traces/uvd-ref-qemu.log")
     fi
-    "${q[@]}" "${extra[@]}"
+    sudo timeout 600 "${q[@]}" "${extra[@]}" || echo "qemu exit: $?"
+    sudo chown -R "$(id -u):$(id -g)" "$work/out" "$root/traces" 2>/dev/null || true
     ;;
 *)
     sed -n '2,/^set /p' "$0" | sed 's/^# \{0,1\}//'

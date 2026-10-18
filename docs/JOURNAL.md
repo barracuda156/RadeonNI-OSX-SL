@@ -6888,3 +6888,13 @@ session. `radeon` bound once and stayed up (UVD initialised). Hypotheses not tes
 idle device into D3hot through runtime PM (`vfio-pci disable_idle_d3=1`), a random fault of this card
 or slot. The one-shot GRUB entry (`/etc/grub.d/40_custom`, backups `*.before-cstate-test`) stays
 available; the default entry is unchanged.
+
+### Third reset (~13:51): during the QEMU passthrough run
+
+`scripts/uvd-ref-qemu.sh run` with the card on vfio-pci, kernel options `processor.max_cstate=1
+pcie_aspm=off` in effect: the host reset about a second after the guest started (its `guest.log` and
+my `run1.log` are stamped 13:50:53, both empty; the journal's last minute was lost); next boot:
+"an uncorrected error caused a data fabric sync flood event". So the resets that follow an action
+all follow passthrough (13:18 vfio bind + QEMU launch, 13:51 the run, and 2026-10-05's guest), none
+followed host-bound radeon (14 min stable, UVD up); one (12:51) had no trigger. Neither the partial
+card-quiet masks nor the kernel options changed anything. Passthrough on this server is stopped.
