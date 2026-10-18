@@ -570,6 +570,30 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 	printf("uvd: firmware %u bytes, reference clock %u0 kHz, flags 0x%x\n", (unsigned)fw_size,
 	       (unsigned)ref, (unsigned)flags);
 	/*
+	 * radeon's evergreen_rlc_resume(): UVD only boots with the RLC microcode loaded and running
+	 * (journal 2026-10-18).
+	 */
+	{
+		size_t rsz;
+		uint8_t *rlc = read_fw("BTC_rlc.bin", &rsz);
+		static const uint32_t zero_regs[] = { 0x3f0c, 0x3f10, 0x3f20, 0x3f1c, 0x3f14, 0x3f18, 0x3f44, 0x3f48 };
+		unsigned k;
+
+		if (rlc && rsz == 768 * 4) {
+			rdn_wreg(card, 0x3f00, 0);
+			for (k = 0; k < sizeof(zero_regs) / sizeof(zero_regs[0]); k++)
+				rdn_wreg(card, zero_regs[k], 0);
+			for (k = 0; k < 768; k++) {
+				rdn_wreg(card, 0x3f2c, k);
+				rdn_wreg(card, 0x3f30, (uint32_t)rlc[k * 4] << 24 | rlc[k * 4 + 1] << 16 |
+					 rlc[k * 4 + 2] << 8 | rlc[k * 4 + 3]);
+			}
+			rdn_wreg(card, 0x3f2c, 0);
+			rdn_wreg(card, 0x3f00, 1);
+			printf("RLC microcode loaded and started\n");
+		}
+	}
+	/*
 	 * Experiment: RDN_REPLAY=file RDN_REPLAY_RANGES=lo-hi[,lo-hi...] (hex byte offsets): write the
 	 * "offset value" lines of the file that fall in a range, just before the UVD start. For finding
 	 * which of the registers Linux sets that ours does not matter to UVD.

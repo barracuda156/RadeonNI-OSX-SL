@@ -6942,3 +6942,13 @@ and the host reset at about 14:12:46 (journal of the previous boot ends there; n
 read yet). Candidate causes: the half-started RLC (ucode uploaded, parts of its state written without
 the rest) or the UVD VCPU running with a ring it cannot use. Nothing else was running on the card.
 `hw/rdn_uvd.c` now writes `RLC_CNTL`=1 before the UVD start (uncommitted experiment).
+
+RLC_CNTL alone, after the 14:13 reboot (fresh `post`): no effect. `RLC_CNTL`=1 (also 0 then 1) inside the
+UVD init, then the full RLC microcode load from `BTC_rlc.bin` (`rdn_tool uvd` does it before the UVD
+init, same writes as radeon's `evergreen_rlc_resume`), with and without VRAM relocation, with the 176
+replay-missing writes, and the exact replay that gave `UVD_STATUS` 2 before the reset (6+ runs in all):
+`UVD_STATUS` stays 0. Repeating the earlier boot's sequence of runs (SMC, VM, scattered, MC FB groups, then
+the RLC replay) did not bring it back either. So the one VCPU boot seen at 14:12 depended on card state
+that a fresh post plus these steps does not give; the state is unidentified. The reset after it is
+unexplained too. Next candidates: read Linux's complete post-UVD register state with radeon bound (needs
+the user's yes), or bisect state by cumulative runs.
