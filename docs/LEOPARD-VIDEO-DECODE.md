@@ -63,3 +63,23 @@ H.264/MPEG-2 on the Radeon HD 7570 under Mac OS X 10.5.9. Findings of
    userland), and a PowerVLC module. Nothing in Leopard helps; the AppleVA
    private ABI would still have to be reverse-engineered and would match
    none of our hardware. Not planned.
+
+## Correction and further checks (2026-10-17, read-only on the G5)
+
+- `AppleVAH264HW.component` on the G5 is **i386 only** (`lipo -info`: "Non-fat file ... i386"). The
+  `ATI_UVD`, NVIDIA and GEN4 slice-decoder strings quoted above come from that Intel binary, which
+  cannot load into a PowerPC process. The PowerPC side has no UVD H.264 path: `AppleVA` (ppc,
+  ppc64) holds a CPU H.264 decoder in AltiVec (`AVA_HD/H264Dec.cpp`, `AVA_HD_P4/P5.dylib` with
+  `10I/10P/10B_SliceDec`) and an MPEG decoder thread, nothing named UVD. The hardware hooks are
+  the `*VADriver.bundle` renderers (`AVACreateRenderer`, `AVAGetRendererInfo`,
+  `AVA_HDCreateHWRenderer`); the Radeon ones are ppc7400 binaries for DVD Player's MPEG-2.
+- `QuickTimeH264.component` is a PowerPC binary (software). Apple's AltiVec decoder in AppleVA has
+  not been timed against ffmpeg.
+- So an own `*VADriver.bundle` (learned by observation, written fresh, like the GL bundle) could
+  at most take MPEG-2 for AppleVA's clients; it could not take H.264 on this OS, because the
+  PowerPC AppleVA never asks a driver for H.264 slices. Not proven impossible: the interface was
+  not disassembled.
+- A documented way to get UVD decode into QuickTime-based programs (QuickTime Player, iTunes,
+  Safari's plug-in) is an own QuickTime image-decompressor component for `avc1` with a higher
+  priority than `QuickTimeH264` (how Perian added codecs). It would call our UVD path; it does not
+  help PowerVLC, whose decoder is ffmpeg's.
