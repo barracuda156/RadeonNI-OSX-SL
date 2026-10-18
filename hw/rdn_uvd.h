@@ -1,0 +1,106 @@
+/*
+ * UVD, the card's video decoder: clocks, microcode, VCPU start, the
+ * ring and its fence. What Linux radeon does in uvd_v1_0.c, uvd_v2_2.c,
+ * radeon_uvd.c (resume) and evergreen_set_uvd_clocks(), for Turks.
+ *
+ * Nothing here decodes: a client builds UVD messages and bitstream
+ * buffers in video memory and submits them as an indirect buffer
+ * (rdn_uvd_ib_submit); the engine's own VCPU runs them. Memory model as
+ * for the 3D engine (rdn_accel.h): everything is in video memory, reached
+ * through the aperture; completion is polled.
+ *
+ * Byte order: the engine's ring and indirect buffers are read byte-swapped
+ * on a big-endian host (UVD_LMI_SWAP_CNTL 0xa, as Linux sets it), so their
+ * words are in host order; messages and bitstreams are not swapped and are
+ * little-endian words / plain bytes.
+ *
+ * Copyright (c) 2026 kouta-kun and Claude
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef RDN_UVD_H
+#define RDN_UVD_H
+
+#include "rdn_accel.h"
+
+#define RDN_UVD_STACK_SIZE	(200 * 1024)
+#define RDN_UVD_HEAP_SIZE	(256 * 1024)
+#define RDN_UVD_SESSION_SIZE	(50 * 1024)
+#define RDN_UVD_DEFAULT_HANDLES	10
+
+/* Clocks while decoding (10 kHz units), as Linux sets them. */
+#define RDN_UVD_VCLK		53300
+#define RDN_UVD_DCLK		40000
+
+struct rdn_uvd {
+	struct rdn_accel *accel;
+	uint32_t ref_freq;	/* the PLL's reference clock, 10 kHz units */
+	uint32_t handles;	/* sessions the firmware may hold */
+	uint32_t fw_size;
+
+	/* Where things are, as byte offsets in the aperture. */
+	uint32_t vcpu_offset;	/* firmware, heap, stack, sessions */
+	uint32_t vcpu_bytes;
+	uint32_t ring_offset;
+	uint32_t ring_words;
+	uint32_t fence_offset;	/* the fence word, 64 bytes after the ring */
+	uint32_t wptr;
+	uint32_t fence_emitted;
+	bool swapped;
+	bool ready;
+};
+
+/*
+ * Bytes of video memory the engine's own use needs for a firmware of
+ * `fw_size` bytes (page aligned; the firmware is copied to its start).
+ * `vcpu_offset` of rdn_uvd_init() is a multiple of 4096.
+ */
+uint32_t rdn_uvd_vcpu_bytes(uint32_t fw_size, uint32_t handles);
+
+/* The ring takes `ring_bytes` (a power of two) and 64 bytes after it. */
+#define RDN_UVD_RING_EXTRA	64
+
+/*
+ * Set the UVD PLL for VCLK and DCLK (10 kHz units); 0, 0 puts it to sleep.
+ * `ref_freq` is FirmwareInfo's reference clock. Returns 0 or -errno.
+ */
+int rdn_uvd_set_clocks(struct rdn_card *card, uint32_t ref_freq,
+		       uint32_t vclk, uint32_t dclk);
+
+/*
+ * The dividers rdn_uvd_set_clocks() would use (Linux
+ * radeon_uvd_calc_upll_dividers() with the Evergreen limits): for tests.
+ */
+int rdn_uvd_calc_dividers(uint32_t ref_freq, uint32_t vclk, uint32_t dclk,
+			  uint32_t *fb_div, uint32_t *vclk_div,
+			  uint32_t *dclk_div);
+
+/*
+ * Copy the firmware (as in the file), raise the clocks, program the
+ * memory window, boot the VCPU, test the ring, lower the clocks again.
+ * `accel` must have the aperture mapped (rdn_accel_init() does not have to
+ * have been called). All three regions must lie in one 4 GB segment of
+ * video memory and `vcpu_offset` within the first 256 MB. Returns 0 or
+ * -errno; -EIO if the VCPU does not answer.
+ */
+int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
+		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
+		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,
+		 uint32_t ring_bytes);
+void rdn_uvd_fini(struct rdn_uvd *uvd);
+
+/*
+ * Run an indirect buffer of `words` words (host order) at GPU address
+ * `gpu_addr`, in the same 4 GB segment as the ring, followed by a fence.
+ * Raises the clocks if they were down. `*seq` is the fence to wait for.
+ */
+int rdn_uvd_ib_submit(struct rdn_uvd *uvd, uint64_t gpu_addr, uint32_t words,
+		      uint32_t *seq);
+bool rdn_uvd_fence_done(struct rdn_uvd *uvd, uint32_t seq);
+int rdn_uvd_fence_wait(struct rdn_uvd *uvd, uint32_t seq, uint32_t timeout_ms);
+
+/* The clocks down (nothing in flight) and up again. */
+int rdn_uvd_idle(struct rdn_uvd *uvd);
+int rdn_uvd_wake(struct rdn_uvd *uvd);
+
+#endif /* RDN_UVD_H */
