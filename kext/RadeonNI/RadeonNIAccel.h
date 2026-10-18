@@ -145,6 +145,8 @@ private:
 	struct rdn_uvd fUvd;
 	bool fUvdUp, fUvdFailed, fUvdClocksUp;
 	UInt32 fUvdLastSeq;
+	IOBufferMemoryDescriptor *fUvdGartMem;
+	UInt32 fUvdGartAt;
 	/* The power state the card was last put in (hw/rdn_pm.h). */
 	struct rdn_pm_state fPower;
 	bool fPowerKnown;

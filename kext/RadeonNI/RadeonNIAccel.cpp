@@ -676,6 +676,88 @@ IOReturn RadeonNIAccel::uvdInit(UInt32 flags, UInt32 *status)
 		ref = 0;
 	IOLockUnlock(fLock);
 
+	if (flags & RDN_UVD_F_GART) {
+		/* Variant: the block's memory in system memory, reached through the GART. */
+		UInt32 total = vcpuBytes + 4096 + RDN_UVD_RING_EXTRA, done;
+		IOBufferMemoryDescriptor *mem;
+		uint64_t at = 0;
+		volatile uint8_t *cpu;
+		uint64_t gpu;
+
+		total = (total + 4095) & ~4095u;
+		if (!fGart.ready || !ref) {
+			IOFree(fw, fwSize);
+			return kIOReturnNotReady;
+		}
+		mem = IOBufferMemoryDescriptor::withOptions(kIODirectionInOut, total, 4096);
+		if (!mem || mem->prepare() != kIOReturnSuccess) {
+			if (mem)
+				mem->release();
+			IOFree(fw, fwSize);
+			return kIOReturnNoMemory;
+		}
+		bzero(mem->getBytesNoCopy(), total);
+		IOLockLock(fLock);
+		if (rdn_mem_alloc(&fGartSpace, total, 4096, &at)) {
+			IOLockUnlock(fLock);
+			mem->complete();
+			mem->release();
+			IOFree(fw, fwSize);
+			return kIOReturnNoResources;
+		}
+		for (done = 0; done < total; done += 4096) {
+			IOByteCount length = 0;
+			IOPhysicalAddress bus = mem->getPhysicalSegment(done, &length);
+
+			if (!bus)
+				break;
+			rdn_gart_set_page(&fGart, (UInt32)((at + done) / 4096), bus);
+		}
+		if (done < total) {
+			while (done) {
+				done -= 4096;
+				rdn_gart_clear_page(&fGart, (UInt32)((at + done) / 4096));
+			}
+			rdn_gart_flush(&fGart);
+			rdn_mem_free(&fGartSpace, at);
+			IOLockUnlock(fLock);
+			mem->complete();
+			mem->release();
+			IOFree(fw, fwSize);
+			return kIOReturnVMError;
+		}
+		rdn_gart_flush(&fGart);
+		cpu = (volatile uint8_t *)mem->getBytesNoCopy();
+		gpu = rdn_gart_addr((UInt32)(at / 4096));
+		IOLog("RadeonNI: UVD (GART): firmware %lu bytes, memory at GPU 0x%lx%08lx, reference clock %lu0 kHz; starting\n",
+		      (unsigned long)fwSize, (unsigned long)(gpu >> 32), (unsigned long)gpu,
+		      (unsigned long)ref);
+		r = rdn_uvd_init_mem(&fUvd, &fAccel, ref, (const uint8_t *)fw, fwSize,
+				     RDN_UVD_DEFAULT_HANDLES, cpu, gpu, cpu + vcpuBytes,
+				     gpu + vcpuBytes, 4096, flags);
+		*status = rdn_rreg(fAccel.card, 0xf6bc);
+		if (r) {
+			for (done = 0; done < total; done += 4096)
+				rdn_gart_clear_page(&fGart, (UInt32)((at + done) / 4096));
+			rdn_gart_flush(&fGart);
+			rdn_mem_free(&fGartSpace, at);
+			IOLockUnlock(fLock);
+			mem->complete();
+			mem->release();
+			IOLog("RadeonNI: UVD (GART) did not start (%d), UVD_STATUS 0x%08lx\n", r,
+			      (unsigned long)*status);
+			IOFree(fw, fwSize);
+			return kIOReturnIOError;
+		}
+		fUvdGartMem = mem;
+		fUvdGartAt = (UInt32)at;
+		fUvdUp = true;
+		IOLockUnlock(fLock);
+		IOLog("RadeonNI: UVD (GART) is up, UVD_STATUS 0x%08lx\n", (unsigned long)*status);
+		IOFree(fw, fwSize);
+		return kIOReturnSuccess;
+	}
+
 	ret = allocVram(vcpuBytes, 4096, &vcpuOff, false);
 	if (ret == kIOReturnSuccess)
 		ret = allocVram(4096 + RDN_UVD_RING_EXTRA, 4096, &ringOff, false);

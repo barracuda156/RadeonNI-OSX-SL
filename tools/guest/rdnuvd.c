@@ -5,7 +5,8 @@
  *   rdnuvd init [flags]  RDN_UC_UVD_INIT: PLL, firmware, VCPU, ring test; flags are
  *                        RDN_UVD_F_* of hw/rdn_uvd.h (1 UDEC config, 2 clocks before the memory window, 4 v1
  *                        window, 8 low clocks, 16 no PLL, 32 keep the clocks up on failure,
- *                        64 offsets instead of GPU addresses)
+ *                        64 offsets instead of GPU addresses, 128 GENERAL_PWRMGT as Linux,
+ *                        256 SCLK_PWRMGT_CNTL as Linux, 512 memory through the GART)
  *   rdnuvd test          init if needed, then run one indirect buffer that
  *                        writes UVD_CONTEXT_ID, wait for its fence, read it back
  *   rdnuvd regs          UVD_STATUS and the registers rdn_uvd.c programs

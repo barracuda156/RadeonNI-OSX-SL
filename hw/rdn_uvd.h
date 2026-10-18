@@ -43,6 +43,9 @@
 #define RDN_UVD_F_NO_PLL	(1 << 4)	/* leave the PLL in bypass: the VCPU runs on the base clock */
 #define RDN_UVD_F_KEEP_CLOCKS	(1 << 5)	/* on failure leave the clocks up (registers can then be read) */
 #define RDN_UVD_F_ADDR_OFFSET	(1 << 6)	/* give the block video memory offsets, not GPU addresses (bits 32-39 zero) */
+#define RDN_UVD_F_PM_GLOBAL	(1 << 7)	/* GENERAL_PWRMGT |= GLOBAL_PWRMGT_EN | STATIC_PM_EN, as in Linux's trace; restored on failure */
+#define RDN_UVD_F_PM_SCLK	(1 << 8)	/* SCLK_PWRMGT_CNTL |= DYN_GFX_CLK_OFF_EN | DYN_LIGHT_SLEEP_EN, as in Linux's trace; restored on failure */
+#define RDN_UVD_F_GART		(1 << 9)	/* (kext) the VCPU region and ring in GART memory: addresses with bits 32-39 zero */
 
 struct rdn_uvd {
 	struct rdn_accel *accel;
@@ -51,12 +54,19 @@ struct rdn_uvd {
 	uint32_t fw_size;
 	uint32_t flags;
 
-	/* Where things are, as byte offsets in the aperture. */
-	uint32_t vcpu_offset;	/* firmware, heap, stack, sessions */
+	/*
+	 * Where things are: the CPU's view and the block's address. In video
+	 * memory (rdn_uvd_init) the CPU view is the aperture and the offsets
+	 * are in it; rdn_uvd_init_mem() takes any memory the GPU can address.
+	 */
+	volatile uint8_t *vcpu_cpu, *ring_cpu;
+	uint64_t vcpu_gpu, ring_gpu;
+	bool in_vram;
+	uint32_t vcpu_offset;	/* firmware, heap, stack, sessions (video memory only) */
 	uint32_t vcpu_bytes;
-	uint32_t ring_offset;
+	uint32_t ring_offset;	/* (video memory only) */
 	uint32_t ring_words;
-	uint32_t fence_offset;	/* the fence word, 64 bytes after the ring */
+	uint32_t pm_general, pm_sclk;	/* registers a power-management variant changed */
 	uint32_t wptr;
 	uint32_t fence_emitted;
 	bool swapped;
@@ -101,6 +111,18 @@ int rdn_uvd_calc_dividers(uint32_t ref_freq, uint32_t vclk, uint32_t dclk,
  * video memory and `vcpu_offset` within the first 256 MB. Returns 0 or
  * -errno; -EIO if the VCPU does not answer.
  */
+/*
+ * The same with memory of the caller's: `vcpu_cpu`/`vcpu_gpu` is
+ * rdn_uvd_vcpu_bytes() bytes (page aligned), `ring_cpu`/`ring_gpu`
+ * `ring_bytes` + RDN_UVD_RING_EXTRA, both zero-filled by this function.
+ * The two GPU addresses must share bits 32-39 and be 4096-aligned. IB
+ * submission needs its buffers in the same 4 GB segment.
+ */
+int rdn_uvd_init_mem(struct rdn_uvd *uvd, struct rdn_accel *accel,
+		     uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
+		     uint32_t handles, volatile uint8_t *vcpu_cpu, uint64_t vcpu_gpu,
+		     volatile uint8_t *ring_cpu, uint64_t ring_gpu,
+		     uint32_t ring_bytes, uint32_t flags);
 int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
 		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,

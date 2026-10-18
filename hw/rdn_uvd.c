@@ -272,10 +272,24 @@ int rdn_uvd_set_clocks(struct rdn_card *card, uint32_t ref_freq,
 	return 0;
 }
 
-/* What the block is told for a place in video memory. */
-static uint64_t uvd_addr(const struct rdn_uvd *uvd, uint32_t offset)
+/* What the block is told for a place: its GPU address, or (a variant) the offset in video memory. */
+static uint64_t uvd_addr(const struct rdn_uvd *uvd, uint64_t gpu)
 {
-	return (uvd->flags & RDN_UVD_F_ADDR_OFFSET) ? offset : uvd->accel->vram_base + offset;
+	return ((uvd->flags & RDN_UVD_F_ADDR_OFFSET) && uvd->in_vram) ? gpu - uvd->accel->vram_base : gpu;
+}
+
+/* Little-endian words in the memory the block shares, whatever the host. */
+static void put_le32(volatile uint8_t *p, uint32_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+	p[2] = (uint8_t)(v >> 16);
+	p[3] = (uint8_t)(v >> 24);
+}
+
+static uint32_t get_le32(volatile uint8_t *p)
+{
+	return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 /* ---- the ring ---------------------------------------------------------- */
@@ -284,7 +298,7 @@ static void ring_put(struct rdn_uvd *uvd, uint32_t value)
 {
 	if (uvd->swapped)
 		value = bswap32(value);
-	rdn_vram_write32(uvd->accel, uvd->ring_offset + uvd->wptr * 4, value);
+	put_le32(uvd->ring_cpu + uvd->wptr * 4, value);
 	uvd->wptr = (uvd->wptr + 1) & (uvd->ring_words - 1);
 }
 
@@ -350,7 +364,7 @@ static int ring_test(struct rdn_uvd *uvd)
 static void program_memory(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
-	uint64_t gpu = uvd_addr(uvd, uvd->vcpu_offset);
+	uint64_t gpu = uvd_addr(uvd, uvd->vcpu_gpu);
 	bool v1 = uvd->flags & RDN_UVD_F_V1_MEM;
 	/* uvd_v1_0_resume() starts 16 units (128 bytes) in and sizes the firmware without the +4 */
 	uint64_t addr = (gpu >> 3) + (v1 ? 16 : 0);
@@ -380,8 +394,7 @@ static void program_memory(struct rdn_uvd *uvd)
 
 	if (v1) {
 		/* the firmware's first word */
-		const volatile uint8_t *b = (const volatile uint8_t *)uvd->accel->aperture +
-					    uvd->vcpu_offset;
+		volatile uint8_t *b = uvd->vcpu_cpu;
 
 		wr(card, UVD_FW_START, b[0] | (b[1] << 8) | (b[2] << 16) | ((uint32_t)b[3] << 24));
 	} else {
@@ -395,7 +408,7 @@ static int vcpu_start(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
 	uint32_t lmi_swap_cntl = 0, mp_swap_cntl = 0;
-	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_offset);
+	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_gpu);
 	uint32_t rb_bufsz, status = 0;
 	int i, j, r = 0;
 
@@ -564,29 +577,23 @@ int rdn_uvd_idle(struct rdn_uvd *uvd)
 	return rdn_uvd_set_clocks(uvd->accel->card, uvd->ref_freq, 0, 0);
 }
 
-int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
-		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
-		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,
-		 uint32_t ring_bytes, uint32_t flags)
+int rdn_uvd_init_mem(struct rdn_uvd *uvd, struct rdn_accel *accel,
+		     uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
+		     uint32_t handles, volatile uint8_t *vcpu_cpu, uint64_t vcpu_gpu,
+		     volatile uint8_t *ring_cpu, uint64_t ring_gpu,
+		     uint32_t ring_bytes, uint32_t flags)
 {
 	struct rdn_card *card = accel->card;
-	volatile uint8_t *bytes = (volatile uint8_t *)accel->aperture;
 	uint32_t vcpu_bytes = rdn_uvd_vcpu_bytes(fw_size, handles);
 	uint32_t i;
 	int r;
 
-	if (!accel->aperture || !fw || !fw_size || (fw_size & 3) || !handles ||
-	    (vcpu_offset & 4095) || (ring_offset & 4095) ||
+	if (!vcpu_cpu || !ring_cpu || !fw || !fw_size || (fw_size & 3) || !handles ||
+	    (vcpu_gpu & 4095) || (ring_gpu & 4095) ||
 	    ring_bytes < 256 || (ring_bytes & (ring_bytes - 1)))
 		return -EINVAL;
-	if ((uint64_t)vcpu_offset + vcpu_bytes > accel->aperture_size ||
-	    (uint64_t)ring_offset + ring_bytes + RDN_UVD_RING_EXTRA > accel->aperture_size)
-		return -EINVAL;
-	if (vcpu_offset < ring_offset + ring_bytes + RDN_UVD_RING_EXTRA &&
-	    ring_offset < vcpu_offset + vcpu_bytes)
-		return -EINVAL;	/* the two overlap */
 	/* the ring and the VCPU region must share the upper address bits */
-	if (((accel->vram_base + vcpu_offset) >> 32) != ((accel->vram_base + ring_offset) >> 32))
+	if ((vcpu_gpu >> 32) != (ring_gpu >> 32))
 		return -EINVAL;
 
 	memset(uvd, 0, sizeof(*uvd));
@@ -595,20 +602,21 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 	uvd->handles = handles;
 	uvd->fw_size = fw_size;
 	uvd->flags = flags;
-	uvd->vcpu_offset = vcpu_offset;
+	uvd->vcpu_cpu = vcpu_cpu;
+	uvd->vcpu_gpu = vcpu_gpu;
 	uvd->vcpu_bytes = vcpu_bytes;
-	uvd->ring_offset = ring_offset;
+	uvd->ring_cpu = ring_cpu;
+	uvd->ring_gpu = ring_gpu;
 	uvd->ring_words = ring_bytes / 4;
-	uvd->fence_offset = ring_offset + ring_bytes;
 	uvd->swapped = RDN_BIG_ENDIAN;
 
 	/* radeon_uvd_resume(): the firmware as in the file, the rest zero */
 	for (i = 0; i < fw_size; i++)
-		bytes[vcpu_offset + i] = fw[i];
+		vcpu_cpu[i] = fw[i];
 	for (; i < vcpu_bytes; i++)
-		bytes[vcpu_offset + i] = 0;
-	for (i = 0; i < ring_bytes + RDN_UVD_RING_EXTRA; i += 4)
-		rdn_vram_write32(accel, ring_offset + i, 0);
+		vcpu_cpu[i] = 0;
+	for (i = 0; i < ring_bytes + RDN_UVD_RING_EXTRA; i++)
+		ring_cpu[i] = 0;
 	rdn_hdp_flush(accel);
 
 	{
@@ -618,6 +626,15 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		wr(card, UVD_UDEC_ADDR_CONFIG, cfg);
 		wr(card, UVD_UDEC_DB_ADDR_CONFIG, cfg);
 		wr(card, UVD_UDEC_DBW_ADDR_CONFIG, cfg);
+	}
+	if (flags & (RDN_UVD_F_PM_GLOBAL | RDN_UVD_F_PM_SCLK)) {
+		/* what Linux's trace has set that ours has not (journal 2026-10-17) */
+		uvd->pm_general = rd(card, 0x63c);	/* GENERAL_PWRMGT */
+		uvd->pm_sclk = rd(card, 0x644);		/* SCLK_PWRMGT_CNTL */
+		if (flags & RDN_UVD_F_PM_GLOBAL)
+			wr(card, 0x63c, uvd->pm_general | 0x3);
+		if (flags & RDN_UVD_F_PM_SCLK)
+			wr(card, 0x644, uvd->pm_sclk | 0x4080);
 	}
 	/* uvd_v2_2_resume() runs before uvd_v1_0_init() raises the clocks */
 	if (!(flags & RDN_UVD_F_PLL_FIRST))
@@ -657,9 +674,40 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 	uvd->ready = true;
 	rdn_log(card->os, RDN_LOG_INFO, "uvd initialized");
 done:
+	if (r && (flags & (RDN_UVD_F_PM_GLOBAL | RDN_UVD_F_PM_SCLK))) {
+		wr(card, 0x63c, uvd->pm_general);
+		wr(card, 0x644, uvd->pm_sclk);
+	}
 	/* lower clocks again */
 	if (!(r && (flags & RDN_UVD_F_KEEP_CLOCKS)))
 		(void)rdn_uvd_idle(uvd);
+	return r;
+}
+
+int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
+		 uint32_t ref_freq, const uint8_t *fw, uint32_t fw_size,
+		 uint32_t handles, uint32_t vcpu_offset, uint32_t ring_offset,
+		 uint32_t ring_bytes, uint32_t flags)
+{
+	uint32_t vcpu_bytes = rdn_uvd_vcpu_bytes(fw_size, handles);
+	volatile uint8_t *bytes = (volatile uint8_t *)accel->aperture;
+	int r;
+
+	if (!accel->aperture || (vcpu_offset & 4095) || (ring_offset & 4095) ||
+	    (uint64_t)vcpu_offset + vcpu_bytes > accel->aperture_size ||
+	    (uint64_t)ring_offset + ring_bytes + RDN_UVD_RING_EXTRA > accel->aperture_size ||
+	    (vcpu_offset < ring_offset + ring_bytes + RDN_UVD_RING_EXTRA &&
+	     ring_offset < vcpu_offset + vcpu_bytes))
+		return -EINVAL;
+	r = rdn_uvd_init_mem(uvd, accel, ref_freq, fw, fw_size, handles,
+			     bytes + vcpu_offset, accel->vram_base + vcpu_offset,
+			     bytes + ring_offset, accel->vram_base + ring_offset,
+			     ring_bytes, flags);
+	if (!uvd->accel)
+		return r;
+	uvd->in_vram = true;
+	uvd->vcpu_offset = vcpu_offset;
+	uvd->ring_offset = ring_offset;
 	return r;
 }
 
@@ -677,13 +725,13 @@ void rdn_uvd_fini(struct rdn_uvd *uvd)
 int rdn_uvd_ib_submit(struct rdn_uvd *uvd, uint64_t gpu_addr, uint32_t words,
 		      uint32_t *seq)
 {
-	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_offset);
+	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_gpu);
 	uint32_t fence_low = (uint32_t)(ring_gpu + uvd->ring_words * 4);
 	int r;
 
 	if (!uvd->ready || !words)
 		return -EINVAL;
-	if ((gpu_addr >> 32) != (ring_gpu >> 32))
+	if ((gpu_addr >> 32) != (uvd->ring_gpu >> 32))
 		return -EINVAL;
 	r = ring_begin(uvd, 16);
 	if (r)
@@ -713,7 +761,7 @@ int rdn_uvd_ib_submit(struct rdn_uvd *uvd, uint64_t gpu_addr, uint32_t words,
 bool rdn_uvd_fence_done(struct rdn_uvd *uvd, uint32_t seq)
 {
 	rdn_hdp_flush(uvd->accel);
-	return (int32_t)(rdn_vram_read32(uvd->accel, uvd->fence_offset) - seq) >= 0;
+	return (int32_t)(get_le32(uvd->ring_cpu + uvd->ring_words * 4) - seq) >= 0;
 }
 
 int rdn_uvd_fence_wait(struct rdn_uvd *uvd, uint32_t seq, uint32_t timeout_ms)
