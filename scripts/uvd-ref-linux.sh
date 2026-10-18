@@ -63,8 +63,8 @@ decode)
 trace)
     need_card
     t=/sys/kernel/tracing
-    [ -d $t ] || { echo "no tracefs" >&2; exit 1; }
-    grep -qw mmiotrace $t/available_tracers || { echo "no mmiotrace tracer" >&2; exit 1; }
+    sudo test -d $t || { echo "no tracefs" >&2; exit 1; }
+    sudo grep -qw mmiotrace $t/available_tracers || { echo "no mmiotrace tracer" >&2; exit 1; }
     "$root/scripts/card-quiet.sh" apply > /dev/null
     sudo sh -c "echo 131072 > $t/buffer_size_kb; echo nop > $t/current_tracer; echo > $t/trace; echo mmiotrace > $t/current_tracer; echo 1 > $t/tracing_on"
     echo "mmiotrace on ($(nproc) CPUs online now)"

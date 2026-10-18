@@ -6898,3 +6898,11 @@ my `run1.log` are stamped 13:50:53, both empty; the journal's last minute was lo
 all follow passthrough (13:18 vfio bind + QEMU launch, 13:51 the run, and 2026-10-05's guest), none
 followed host-bound radeon (14 min stable, UVD up); one (12:51) had no trigger. Neither the partial
 card-quiet masks nor the kernel options changed anything. Passthrough on this server is stopped.
+
+### Host mmiotrace of radeon's init (2026-10-18, 13:54, `uvd-ref-linux.sh trace`)
+
+`radeon` bound at runtime with mmiotrace on (12 CPUs offline for ~20 s, then back): 48744 register
+accesses in `traces/uvd-ref-host-mmiotrace.log` (57 MB, not committed), no reset. Linux logged
+`ring test on 5 succeeded`, `UVD initialized successfully`. Its 92 UVD/PLL writes equal the QEMU-guest
+reference trace's in order and value, i.e. the same sequence our kext sends (journal 2026-10-17):
+the difference that keeps the VCPU silent on the G5 is not in the UVD/PLL write sequence itself.
