@@ -211,3 +211,15 @@ PowerVLC 2.1.0 on the G5 decodes H.264 on the CPU (ffmpeg). 1080p H.264 drops ne
   adds `FW_UVD` (the perl edit was tried on a copy: valid plist), touches `Extensions`; then a
   restart. The first `rdnuvd init` is the first time this card's UVD block is clocked and booted: if
   it hangs, the G5 needs a power cycle.
+
+## Result of the first bring-up attempts (2026-10-17 evening)
+
+The VCPU does not answer on the G5 (`UVD_STATUS` 0) with a register sequence that now matches the
+Linux reference trace of this card write for write (see the journal). The cache-register offset
+mistake (R6xx instead of Evergreen) was found and fixed; it was not the whole story. What is
+known: the PLL locks, the firmware is in video memory, every register reads back, no memory
+controller fault is recorded. Open: the memory base (Linux moves it to 0, we keep the BIOS's
+0xF00000000), and other state Linux's full init sets up. The next step that would settle it is
+Linux's own behaviour on this G5 (registers and memory base while UVD runs), i.e. the ArchPOWER
+route of the earlier proposal; or, inside the kext, trying the block with its memory reached
+through the GART. `rdnuvd init <flags>` and the failure dump in the kernel log are the tools.

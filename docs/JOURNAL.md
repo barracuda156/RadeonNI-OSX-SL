@@ -6738,3 +6738,44 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   resized and re-attached): with both changes PowerFox 26.4.0 started with `open` shows its
   welcome page (readback grab), 2 surfaces with a buffer in `rdnsurf`. Only the welcome page and
   start page were looked at; no video or WebGL.
+
+## 2026-10-17 (evening): first UVD bring-up attempts on the G5 (10.5.9): the VCPU does not answer
+
+- Setup: Leopard kext with `hw/rdn_uvd.c` and the UVD user-client methods installed over the 10.5
+  kext (old files kept as `RadeonNI.before-uvd-*` in the kext's `Contents`), `FW_UVD`
+  (`SUMO_uvd.bin`, 205080 bytes) added to the personality, restart, `~/uvd-test/rdnuvd`. UVD is not
+  touched at load; `rdnuvd init [flags]` does the bring-up. The G5 now shows 12 GB of RAM (the
+  DIMM pairs seated again).
+- Register reads of the UVD block before any init: fine (no hang): `UVD_SOFT_RESET` 0x8,
+  `UVD_VCPU_CNTL` 0x0ff00000, PLL bypassed and asleep.
+- Attempt 1 (Linux's sequence as I had ported it): PLL handshake completes (no CTLACK timeout),
+  firmware in video memory byte for byte (`rdnuvd dump`), every register reads back as written,
+  but `UVD_STATUS` stays 0 through 10 resets of the VCPU: "uvd not responding". No hang, no
+  host-visible fault.
+- Found by comparing with the Linux radeon reference trace of this card
+  (`traces/ref-radeon-2.phase-a1.txt`): I had used the R6xx offsets of the VCPU cache registers
+  (0xf608-0xf61c, r600d.h). Evergreen's `uvd_v2_2.c` uses rv770d.h's 0xf4d8-0xf4ec. Fixed in
+  `hw/rdn_uvd_reg.h` (the old ones kept for the `RDN_UVD_F_V1_MEM` variant). The tiling registers
+  `UVD_UDEC_*_ADDR_CONFIG` (0xef4c-0xef54), which Linux writes in `evergreen_gpu_init`, are now
+  written too.
+- With that, our UVD register writes match the Linux trace in order, offset for offset (a diff of
+  the UVD/PLL-range writes from the first cache-window write to the first ring-test write: the same
+  58 writes; values differ only where they depend on addresses). The only ordering difference
+  was that Linux programs the memory window before the PLL; ours now does too.
+- Attempt 2 (corrected offsets, Linux order): still no answer. Variants tried before the
+  offset fix (UDEC config, memory first, v1 window, low clocks, no PLL, in combinations) and
+  after it (default, address-offset instead of GPU addresses `flags 64`): all fail the same way.
+  Failure dump with the clocks up: PLL running with the same values as in the Linux trace
+  (`CG_UPLL_FUNC_CNTL` 0x300, `_2` 0x042c0403, `_3` 0x100ece38), `UVD_SOFT_RESET` 0, `VCPU_CNTL` 0x200,
+  `LMI_CTRL` 0x00302340, `MC_VM_FB_LOCATION` 0x0f3f0f00 (VRAM at 0xF00000000, 1 GB), system aperture
+  0xf00000-0xf3ffff, and **no MC protection fault recorded** (`VM_CONTEXT1_PROTECTION_FAULT_STATUS` 0).
+- One difference not yet explained: in the Linux trace `MC_VM_FB_LOCATION` is rewritten to base 0
+  (0x003f0000, `evergreen_mc_program`) before UVD starts, so Linux gives the block addresses with
+  bits 32-39 zero; ours are at 0xF00000000 and `UVD_LMI_EXT40_ADDR` carries 0xF. The BIOS
+  placement is kept by our driver. Not tested: UVD with the firmware reached through the GART
+  (addresses 0x40000000.., high bits zero), or the memory base moved to 0 (invasive).
+- Other candidates not excluded: state Linux's full init sets up and ours does not (clock/power
+  gating, MC arbitration), the block being fused off on this board (the registers answer, so it
+  exists).
+- No hang and no damage in any attempt. The kext stays inert unless a program calls
+  `RDN_UC_UVD_INIT`.
