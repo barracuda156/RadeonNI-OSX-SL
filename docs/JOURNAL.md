@@ -6650,3 +6650,18 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   itself. Nothing was looked at on the monitor during the run beyond the desktop grab.
 - No regression seen from the per-OS engine layout, the bind change and the surface gate
   (`SurfaceGate` false on 10.4). Not rerun: the games of `docs/COMPAT.md`, sleep, hot-plug.
+
+## 2026-10-17: community apps on 10.5.9 (G5), first launches
+
+- G5 restarted into Leopard (`bless --mount /Volumes/Leopard --setBoot`). `system_profiler`:
+  `Quartz Extreme: Not Supported`, `Core Image: Software`: the documented 10.5 state (journal
+  of 2026-10-12), not a regression. Apps are staged in `~/Downloads`, run from `~/Applications`.
+- PowerFox Classic 26.4.0 (G5 build, powerfox.org): **crashes at start**, SIGBUS reading 0 in
+  thread 23, `mozilla::gl::GLContext::InitWithPrefixImpl` called from
+  `CompositorOGL::CreateContext` (first GL queries of the compositor context; r3 = 0 and
+  ctr in libSystem suggest a NULL string from `glGetString` passed to a string function; not
+  confirmed). Crash report: `~/Library/Logs/CrashReporter/powerfox_2026-10-17-171800_localhost.crash`.
+- VLC 2.0.10 (official PPC dmg): starts and stays up. PowerVLC 2.1.0 (Olsro, g5): window and
+  controls drawn, metadata dialog shown. LibreOfficeDev "Equinox" 5.2.0.alpha0 (D. Mencken,
+  OSU mirror): Start Center drawn. Seen by readback only; no video played, no document opened.
+- ScummVM static build (dwatteau, 2026-06-27) copied and unpacked, not run. TenFourFox not fetched.
