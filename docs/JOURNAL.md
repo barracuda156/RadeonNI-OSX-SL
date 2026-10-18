@@ -7015,3 +7015,8 @@ return 0) then RLC microcode, with and without the VRAM relocation, and with the
 offsets 0x40000, 0x100000 and 36 MB: `UVD_STATUS` 0 each time. The MC microcode is not the missing
 piece. The one VCPU boot of 14:12 stays unexplained (it needed neither a different offset nor the
 relocation: those were repeated here in the same order without effect).
+
+15:19 (x86 host, clean reboot 15:17, fresh post, host stable): `rdn_tool uvd` with MC microcode + RLC
+microcode + the interrupt handler ring (`evergreen_irq_init` writes, ring and write-back word in VRAM at
+40/41 MB, `RDN_NO_IH=1` skips) still gives `UVD_STATUS` 0, also with the VRAM relocation (the IH base is set
+before the relocation there, so it names the old base). Not the missing piece either (or not alone).
