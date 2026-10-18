@@ -7094,3 +7094,24 @@ with one PCI command word read-modify-write, i.e. bus master), then `uvd_v1_0_in
 26 ms `uvd_v1_0_start`). 58 `schedule_timeout` sleeps in the span and no cache flush, no `wbinvd`, no other
 PCI config access. Nothing there that our replays did not do; the order is uvd_v2_2_resume, IH/RLC, CP resume,
 then uvd_v1_0_init.
+
+17:00-17:55 (x86 host): the dependency found, and a replay that works. Work on a locally built `radeon.ko`
+(6.18.57 source from kernel.org, out-of-tree in `build/kernel-src/radeon-src`, extra parameters `skip` and
+`uvd_early` that skip steps of `evergreen_startup`, `r600_irq_init`, `evergreen_mc_program` and
+`evergreen_pcie_gart_enable`; `RADEON_KO` in `scripts/card-bind.sh` loads it):
+- UVD needs, of radeon's init, only the RLC resume (`evergreen_rlc_resume`; skip=256 fails with `UVD not
+  responding`) and not: ASPM, Gen2, MC microcode, GFX init, CP and DMA start, interrupt enable, the
+  interrupt-state registers, the dummy page, HDP init, MC stop/resume, VGA lockout, aperture default,
+  VGA render disable, the MD/MB L1 TLBs, the L2 cache (skipping the last three leaves the VCPU booting;
+  only the ring test fails, `-22`). With all of those skipped at once (skip=1015379) the VCPU still boots.
+- Radeon on a card WE posted (`rdn_tool post`, then bind with that minimal configuration under mmiotrace):
+  the VCPU boots, status 2 on the first read. Its register stream after our POST is short: 2,521 accesses
+  (2,191 writes) to the first `UVD_STATUS` read (`build/uvd-ref/rom-min-timed.txt`, from
+  `traces/uvd-ref-host-mmiotrace.log`).
+- REPLAYING THAT onto a freshly posted card with `rdn_tool replay` (timed, the firmware written to VRAM 0x40000
+  before the HDP flush at line 789, bus master set by setpci) gives `UVD_STATUS` 00000002. First success of
+  our tooling outside the unexplained 14:12 run. The only mismatches against the values radeon read are 115
+  reads of CG_SPLL_STATUS (0x60c), the engine clock PLL handshake.
+- Earlier full-trace replays failed because they replayed Linux's own POST, which leaves VRAM unreadable
+  (reads return garbage); the POST must come from `rdn_tool post`.
+Next: delta-debug the 2,191 writes down to the ones that matter.
