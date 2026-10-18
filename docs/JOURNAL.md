@@ -6779,3 +6779,15 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   exists).
 - No hang and no damage in any attempt. The kext stays inert unless a program calls
   `RDN_UC_UVD_INIT`.
+
+## 2026-10-17 (late): UVD, tests that need no reboot
+
+- `tools/guest/rdnreg.c`: reads the registers listed on standard input through `RDN_UC_REG_READ`.
+  Read the last value Linux left in each of 612 registers before its UVD start (from
+  `traces/ref-radeon-2.phase-a1.txt`) against this card's now: 203 differ. Expected ones: memory
+  base (`MC_VM_FB_LOCATION`, system aperture, VGA base), engine/memory PLLs (we run 650/800 MHz,
+  Linux the boot clocks), SMC/DPM tables. Not explained by that: `GENERAL_PWRMGT` 0x63c (Linux
+  0x7613, ours 0x7604), `SCLK_PWRMGT_CNTL` 0x644 (0xf7892 / 0xf3812), `MCLK_PWRMGT_CNTL` 0x648
+  (0x0700ffc1 / 0x0700ffcf), 0x4a0-0x4d8 (power gating? unnamed in the headers).
+- UVD at the boot clocks (`rdnuc power boot`: engine 100 MHz, memory 150 MHz), then init: still no
+  answer; performance state restored afterwards (650/800 MHz).
