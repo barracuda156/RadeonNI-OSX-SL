@@ -577,8 +577,12 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 			close(fd);
 			printf("firmware (%u bytes, window %u) written at VRAM %lx\n", fsz, bytes, foff);
 		}
-		if (sscanf(line, "%c %lx %lx", &kind, &off, &val) != 3)
+		unsigned long dt = 0;
+
+		if (sscanf(line, "%c %lx %lx %lu", &kind, &off, &val, &dt) < 3)
 			continue;
+		if (dt && getenv("RDN_REPLAY_TIMED"))
+			os_delay_us(NULL, (uint32_t)dt);
 		if (kind == 'W') {
 			rdn_wreg(card, (uint32_t)off, (uint32_t)val);
 			w++;
@@ -591,6 +595,7 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 		} else {
 			(void)rdn_rreg(card, (uint32_t)off);
 		}
+		if (!getenv("RDN_REPLAY_TIMED"))
 		os_delay_us(NULL, off == 0xf680 || off == 0xe60 || off == 0xf4f4 || off == 0xf480 || off == 0xf660 ?
 			    10000 : (off >= 0x600 && off < 0x900) || off == 0x5480 ? 2000 : 20);
 	}
