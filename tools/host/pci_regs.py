@@ -34,7 +34,10 @@ def main(argv):
         lo, hi = int(argv[1], 0), int(argv[2], 0)
         offsets = list(range(lo, hi, 4))
     elif argv[:1] == ["--uvd"]:
-        offsets = list(range(0xef00, 0xf700, 4)) + [0x718, 0x71c, 0x720, 0x79c, 0x854]
+        # only registers that radeon itself touches (build/uvd-ref/uvd-known.txt, from the host
+        # trace): reading the whole range reset the host twice (docs/JOURNAL.md, 2026-10-18)
+        offsets = [int(l, 0) for l in open("build/uvd-ref/uvd-known.txt") if l.strip()]
+        offsets += [0x718, 0x71c, 0x720, 0x79c, 0x854]
     elif argv:
         offsets = [int(l.split()[0], 0) for l in open(argv[0]) if l.strip()]
     else:

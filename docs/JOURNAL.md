@@ -6980,3 +6980,11 @@ idle resets (nobody reading) do not fit this, so there may be two causes. Earlie
 (`pci_regs.py` with radeon bound) were stable, but then UVD had just been in use.
 Next time: read the UVD registers only while UVD is busy (a VA-API decode running), or only read what
 radeon itself reads with the clock up.
+
+Second dump attempt (14:56, `radeon` bound, ffmpeg VA-API decode of a 1080p H.264 file running at 30x so
+UVD was busy and clocked): `pci_regs.py --uvd` reset the host again within seconds of starting (journal
+boot ends 14:56). That refutes the clock-gating explanation above. `--uvd` read every register in
+0xef00-0xf700 (about 512 words, most of which radeon never touches); some register in that range, read
+from outside the driver, never completes. Hardware VA-API decode itself works (2250 frames, 30x).
+`--uvd` now reads only the 184-odd registers radeon touches (`build/uvd-ref/uvd-known.txt`); a blind
+`--range` read of this card is not to be used.
