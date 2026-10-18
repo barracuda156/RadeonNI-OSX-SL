@@ -83,7 +83,15 @@ radeon)
     unbind_all
     set_override ""
     # RADEON_PARAMS e.g. "dpm=0" (the module is loaded here, so it only applies to a fresh boot)
-    sudo modprobe radeon ${RADEON_PARAMS:-}
+    if [ -n "${RADEON_KO:-}" ]; then
+        # a locally built radeon.ko (build/kernel-src, docs/JOURNAL.md 2026-10-18): its dependencies from modprobe
+        modprobe --show-depends radeon | awk '$1=="insmod" && $2 !~ /\/radeon\.ko/ {print $2}' |
+            while read -r dep; do sudo insmod "$dep" 2>/dev/null || true; done
+        # shellcheck disable=SC2086
+        sudo insmod "$RADEON_KO" ${RADEON_PARAMS:-}
+    else
+        sudo modprobe radeon ${RADEON_PARAMS:-}
+    fi
     probe
     status
     ;;
