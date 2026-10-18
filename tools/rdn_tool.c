@@ -529,6 +529,36 @@ static int do_accel(struct linux_card *lc, struct rdn_card *card)
  * (SUMO_uvd.bin in the firmware directory), a ring test, and one indirect buffer that writes
  * UVD_CONTEXT_ID. `flags` are RDN_UVD_F_*. Needs a posted card.
  */
+static int replay_fw(struct linux_card *lc)
+{
+	/* the firmware where radeon has it (VRAM offset RDN_FW_OFF), the rest of its window zero */
+	static uint8_t uvd_fw[300000];
+	struct stat st;
+	char path[512];
+	uint32_t fsz, bytes, i;
+	unsigned long foff = strtoul(getenv("RDN_FW_OFF") ? getenv("RDN_FW_OFF") : "0x40000", NULL, 0);
+	volatile uint8_t *ap;
+	int fd = sysfs_open(lc, "resource0", O_RDWR);
+	FILE *ff;
+
+	snprintf(path, sizeof(path), "%s/SUMO_uvd.bin", fw_dir);
+	ff = fopen(path, "rb");
+	if (fd < 0 || fstat(fd, &st) || !ff)
+		return -1;
+	fsz = (uint32_t)fread(uvd_fw, 1, sizeof(uvd_fw), ff);
+	fclose(ff);
+	ap = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (ap == MAP_FAILED)
+		return -1;
+	bytes = rdn_uvd_vcpu_bytes(fsz, RDN_UVD_DEFAULT_HANDLES);
+	for (i = 0; i < bytes; i++)
+		ap[foff + i] = i < fsz ? uvd_fw[i] : 0;
+	munmap((void *)ap, st.st_size);
+	close(fd);
+	printf("firmware (%u bytes, window %u) written at VRAM %lx\n", fsz, bytes, foff);
+	return 0;
+}
+
 /*
  * Experiment: replay a register trace ("W 0xOFFSET 0xVALUE" / "R 0xOFFSET 0xVALUE" lines, the
  * format of build/uvd-ref/host-all-regs.txt) from line FROM to line TO onto the card, in order, with a
@@ -555,35 +585,15 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 			continue;
 		if (n > to)
 			break;
-		if (fw_line && n - 1 == fw_line) {
-			/* the firmware where radeon has it (VRAM offset RDN_FW_OFF), the rest of its window zero */
-			static uint8_t uvd_fw[300000];
-			struct stat st;
-			char path[512];
-			uint32_t fsz, bytes, i;
-			unsigned long foff = strtoul(getenv("RDN_FW_OFF") ? getenv("RDN_FW_OFF") : "0x40000", NULL, 0);
-			volatile uint8_t *ap;
-			int fd = sysfs_open(lc, "resource0", O_RDWR);
-			FILE *ff;
-
-			snprintf(path, sizeof(path), "%s/SUMO_uvd.bin", fw_dir);
-			ff = fopen(path, "rb");
-			if (fd < 0 || fstat(fd, &st) || !ff)
-				return -1;
-			fsz = (uint32_t)fread(uvd_fw, 1, sizeof(uvd_fw), ff);
-			fclose(ff);
-			ap = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-			if (ap == MAP_FAILED)
-				return -1;
-			bytes = rdn_uvd_vcpu_bytes(fsz, RDN_UVD_DEFAULT_HANDLES);
-			for (i = 0; i < bytes; i++)
-				ap[foff + i] = i < fsz ? uvd_fw[i] : 0;
-			munmap((void *)ap, st.st_size);
-			close(fd);
-			printf("firmware (%u bytes, window %u) written at VRAM %lx\n", fsz, bytes, foff);
-		}
 		unsigned long dt = 0;
 
+		kind = line[0];
+		if ((fw_line && n - 1 == fw_line) || kind == 'F') {
+			if (replay_fw(lc))
+				return -1;
+			if (kind == 'F')
+				continue;
+		}
 		if (sscanf(line, "%c %lx %lx %lu", &kind, &off, &val, &dt) < 3)
 			continue;
 		if (dt && getenv("RDN_REPLAY_TIMED"))
