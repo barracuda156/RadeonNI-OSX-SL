@@ -6963,3 +6963,20 @@ on this board, not our register writes. The 14:12 reset, a few seconds after an 
 probably the same background event.
 The resume service itself failed at 14:26 with `exec: claude: no encontrado` (no `~/.local/bin` in
 systemd's PATH), so it left only a 91-byte log; fixed in the script (PATH), the user disabled the unit.
+
+## 2026-10-18 14:51 (x86 host): radeon bound again; reading the UVD registers from outside reset the host
+
+First test through the new runner (`scripts/run-remote.sh`, session on the PC, netconsole to the PC):
+`uvd-ref-linux.sh bind` at 14:50:50 gave `UVD initialized successfully`, ring tests 0/3/5 and IB tests
+passed, no errors. Then `uvd-ref-linux.sh dump` started `tools/host/pci_regs.py -d 0000:10:00.0 --uvd`
+at 14:51:08 and the host reset within about 24 s (boot of 14:51:32 follows; reset reason sync flood as
+before). Netconsole captured nothing from the crash (the kernel gets no warning); the runner's log has
+only its first line; `build/uvd-ref/linux-uvd-regs.txt` is empty. Netconsole did come up by itself at
+the new boot (`netconsole-pc.service`).
+Reading: the reset followed right after a read of UVD registers while `radeon` had been idle for 12 s,
+and `radeon` gates the UVD clock when UVD is idle (`radeon_uvd` idle work, about 1 s). A register read
+from a block with no clock may never complete, and that turns into a fabric error. The 12:51 and 14:31
+idle resets (nobody reading) do not fit this, so there may be two causes. Earlier host-side dumps
+(`pci_regs.py` with radeon bound) were stable, but then UVD had just been in use.
+Next time: read the UVD registers only while UVD is busy (a VA-API decode running), or only read what
+radeon itself reads with the clock up.
