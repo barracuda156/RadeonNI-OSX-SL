@@ -840,6 +840,67 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 }
 
 /*
+ * Experiment: our UVD start on a card that radeon has brought up (journal 2026-10-18). No accel
+ * init: only the UVD block is touched, the firmware goes where radeon has its own copy
+ * (RDN_VCPU_OFF, default 0x40000) and the ring 200 MB into video memory.
+ */
+static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
+{
+	static uint8_t uvd_fw[300000];
+	struct rdn_accel accel;
+	struct rdn_uvd uvd;
+	struct stat st;
+	char path[512];
+	uint32_t ref = 0, fw_size, seq = 0;
+	FILE *f;
+	int fd, r;
+
+	memset(&accel, 0, sizeof(accel));
+	snprintf(path, sizeof(path), "%s/SUMO_uvd.bin", fw_dir);
+	f = fopen(path, "rb");
+	if (!f) {
+		perror(path);
+		return -1;
+	}
+	fw_size = (uint32_t)fread(uvd_fw, 1, sizeof(uvd_fw), f);
+	fclose(f);
+	fd = sysfs_open(lc, "resource0", O_RDWR);
+	if (fd < 0 || fstat(fd, &st))
+		return -1;
+	accel.aperture = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (accel.aperture == MAP_FAILED)
+		return -1;
+	accel.card = card;
+	accel.aperture_size = (uint32_t)st.st_size;
+	accel.vram_base = (uint64_t)(rdn_rreg(card, 0x2024) & 0xffff) << 24;
+	if (rdn_uvd_ref_clock(card, &ref)) {
+		fprintf(stderr, "no PLL reference clock in the VBIOS\n");
+		return -1;
+	}
+	printf("uvdonly: vram base %llx, UVD_STATUS before %08x\n", (unsigned long long)accel.vram_base,
+	       (unsigned)rdn_rreg(card, UVD_STATUS));
+	r = rdn_uvd_init(&uvd, &accel, ref, uvd_fw, fw_size, RDN_UVD_DEFAULT_HANDLES,
+			 getenv("RDN_VCPU_OFF") ? (uint32_t)strtoul(getenv("RDN_VCPU_OFF"), NULL, 0) : 0x40000,
+			 200u << 20, 4096, flags);
+	printf("uvd init returned %d; UVD_STATUS %08x\n", r, (unsigned)rdn_rreg(card, UVD_STATUS));
+	if (!r) {
+		uint32_t ib = (200u << 20) + 0x20000;
+
+		rdn_vram_write32(&accel, ib, RDN_UVD_PACKET0(UVD_CONTEXT_ID, 0));
+		rdn_vram_write32(&accel, ib + 4, 0x600DF00D);
+		r = rdn_uvd_wake(&uvd);
+		if (!r)
+			r = rdn_uvd_ib_submit(&uvd, rdn_vram_addr(&accel, ib), 2, &seq);
+		if (!r)
+			r = rdn_uvd_fence_wait(&uvd, seq, 1000);
+		printf("uvd IB: %d, UVD_CONTEXT_ID %08x\n", r, (unsigned)rdn_rreg(card, UVD_CONTEXT_ID));
+		(void)rdn_uvd_idle(&uvd);
+		rdn_uvd_fini(&uvd);
+	}
+	return r;
+}
+
+/*
  * Save what CRTC 0 scans out (32 bpp, at aperture offset 0) as a PPM file,
  * so that the picture can be looked at without the monitor.
  */
@@ -1042,6 +1103,8 @@ int main(int argc, char **argv)
 		/* replay FILE FROM TO */
 		ret = do_replay(&lc, &card, argv[optind + 1], (unsigned)strtoul(argv[optind + 2], NULL, 0),
 				(unsigned)strtoul(argv[optind + 3], NULL, 0));
+	} else if (!strcmp(cmd, "uvdonly")) {
+		ret = do_uvdonly(&lc, &card, optind + 1 < argc ? (uint32_t)strtoul(argv[optind + 1], NULL, 0) : 0);
 	} else if (!strcmp(cmd, "uvd")) {
 		if (trace) {
 			lc.trace = fopen(trace, "w");
