@@ -166,3 +166,21 @@ PowerVLC 2.1.0 on the G5 decodes H.264 on the CPU (ffmpeg). 1080p H.264 drops ne
 4. `rdnvd` with a command-line decoder: time 1080p H.264 against ffmpeg on the G5.
 5. PowerVLC module (readback), then zero-copy to GL.
 6. QuickTime component.
+
+## Corrections after review (2026-10-17)
+
+- **Where bring-up runs.** The 7570 is in the G5 and the user plays games on it; the Linux tool
+  path and the QEMU guest both need the card in the server, which nobody asked for. Milestones 1
+  and 2 therefore go through the kext on the G5: the user client has `RDN_UC_REG_READ` but no
+  register write, so a first UVD bring-up means `hw/rdn_uvd.c` in the kext (built in the guest,
+  installed by the package, restart) driven by a small test tool. A hang then costs the G5 a
+  power cycle (journal: two after an Open Firmware hang), so it needs the user at the machine.
+- **The H.264 parser.** Mesa 26.2.4 has no H.264 header parser. Its OMX frontend, which had one,
+  is gone from the tree; the VA frontend (`frontends/va/picture_h264.c`) copies parameters an
+  application already parsed into `pipe_h264_picture_desc`. What Mesa does have and can be
+  linked: the bit reader `src/util/vl_rbsp.h` (+ `vl_vlc.h`), `radeon_uvd.c` (message builder,
+  takes `pipe_h264_picture_desc`), and the whole VA frontend, which is the translation from
+  libva structures. So the parser has to come from the caller: ffmpeg's own H.264 decoder can
+  run in hwaccel mode (VDPAU-style: it parses, then hands `VdpPictureInfoH264` and the slice
+  bytes to a callback), and that works the same for PowerVLC and for a QuickTime component that
+  links libavcodec dynamically (LGPL: linked and shipped unmodified, not copied).
