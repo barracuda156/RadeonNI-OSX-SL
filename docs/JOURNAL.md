@@ -7066,3 +7066,13 @@ replay differed from Linux in link speed too, but Linux itself does not need Gen
 successfully`. UVD needs none of: power management, PCIe Gen2, ASPM setup, MSI, write-back of the
 scratch registers, the HDMI audio function. `scripts/radeon-try.sh "PARAMS"` does the reboot, the bind
 and the report (run a copy outside the sshfs mount: the remount during the script breaks it).
+
+15:55 (x86 host): value check of the trace replay (`RDN_REPLAY_CHECK=1`: every read in the replay compared with
+the value radeon read at that point in the trace): 382 mismatches on 17 registers, all explained by
+parts that matter nothing for UVD or cannot be replayed: the ROM reads (8), the CP ring test word 0x8504
+(the ring lives in system memory), the PCIe LC register 0x3c (link state), and the SMC block of the
+dpm=1 trace: SMC message poll 0x20c (expected 0x5d, replay stays at 0x15d for 249 polls: the SMC never
+answers), 0x60c/0x61c/0x208/0x29f8/0x2a48 (SMC state). The final UVD reads: UVD_MASTINT_EN 0xf500
+expected 2 got 0, as UVD_STATUS. Nothing UVD-related differs before the VCPU start. The trace is of a
+dpm=1 run; since dpm=0 also boots UVD, the next trace is taken with the minimal radeon configuration
+(no SMC in it): the old trace is kept as `traces/uvd-ref-host-mmiotrace-dpm1.log`.
