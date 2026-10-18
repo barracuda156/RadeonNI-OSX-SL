@@ -119,6 +119,27 @@ enum {
 	 * RDN_UC_SCREEN_FILL.
 	 */
 	RDN_UC_SCREEN_COPY,
+	/*
+	 * UVD (hw/rdn_uvd.h). Needs the personality's FW_UVD (the firmware as
+	 * in linux-firmware's SUMO_uvd.bin); without it every UVD method
+	 * returns kIOReturnNotReady and nothing touches the block.
+	 *
+	 * RDN_UC_UVD_INIT: scalars out: UVD_STATUS afterwards. Sets the PLL,
+	 * loads the firmware, boots the VCPU and tests the ring. Done once
+	 * (a second call only reports); a card that does not answer returns
+	 * an error and leaves the block stopped.
+	 */
+	RDN_UC_UVD_INIT,
+	/*
+	 * scalars in: offset (in the aperture, from RDN_UC_ALLOC) of an
+	 * indirect buffer of UVD commands and its length in words, host byte
+	 * order; out: fence. Raises the UVD clocks.
+	 */
+	RDN_UC_UVD_SUBMIT,
+	/* scalars in: fence, timeout in ms; out: 1 if reached. Lowers the clocks once nothing is pending. */
+	RDN_UC_UVD_FENCE_WAIT,
+	/* scalars out: 1 if the engine is up, its VCPU region's offset, the ring's offset */
+	RDN_UC_UVD_INFO,
 	RDN_UC_METHOD_COUNT
 };
 

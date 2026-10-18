@@ -89,7 +89,7 @@ test: all
 		set -e; \
 		$(call run_test,mem_alloc,); \
 		$(call run_test,engine_detect,); \
-		$(call run_test,uvd_model,); \
+		$(call run_test,uvd_model,$(VBIOS)); \
 		$(call run_test,arb_alias,); \
 		if [ -f private/monitor-edid.bin ] && [ -f private/g5-monitor-edid.bin ]; then \
 			$(call run_test,edid_modes,private/monitor-edid.bin private/g5-monitor-edid.bin); \

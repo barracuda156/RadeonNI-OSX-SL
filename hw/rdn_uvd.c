@@ -28,17 +28,34 @@
  * Authors: Christian König, Jerome Glisse
  */
 
-#include <errno.h>
 #include <string.h>
 
 #include "rdn_uvd.h"
 #include "rdn_uvd_reg.h"
+#include "atom/atombios.h"
 
 /* Linux's usec_timeout. */
 #define RDN_UVD_USEC_TIMEOUT	100000
 
 /* VCPU_CHIP_ID for Turks (uvd_v2_2.c). */
 #define RDN_UVD_CHIP_ID_TURKS	0x01000011
+
+/* The kernel has no <errno.h>; the values are the usual ones. */
+#ifndef EIO
+#define EIO 5
+#endif
+#ifndef ENOMEM
+#define ENOMEM 12
+#endif
+#ifndef EBUSY
+#define EBUSY 16
+#endif
+#ifndef EINVAL
+#define EINVAL 22
+#endif
+#ifndef ETIMEDOUT
+#define ETIMEDOUT 60
+#endif
 
 #define PAGE_UP(x)		(((x) + 4095u) & ~4095u)
 
@@ -70,6 +87,23 @@ static void mdelay(struct rdn_card *card, uint32_t ms)
 static uint32_t bswap32(uint32_t v)
 {
 	return (v << 24) | ((v & 0xff00) << 8) | ((v >> 8) & 0xff00) | (v >> 24);
+}
+
+/* radeon_atom_get_clock_info(): FirmwareInfo's reference clock, 10 kHz units. */
+int rdn_uvd_ref_clock(struct rdn_card *card, uint32_t *ref_freq)
+{
+	struct atom_context *ctx = card->atom.ctx;
+	uint16_t size = 0, offset = 0;
+	const uint8_t *info;
+
+	if (!ctx || !atom_parse_data_header(ctx, GetIndexIntoMasterTable(DATA, FirmwareInfo),
+					    &size, NULL, NULL, &offset) ||
+	    size < offsetof(ATOM_FIRMWARE_INFO, usReferenceClock) + 2)
+		return -EINVAL;
+	info = (const uint8_t *)ctx->bios + offset;
+	*ref_freq = info[offsetof(ATOM_FIRMWARE_INFO, usReferenceClock)] |
+		    (info[offsetof(ATOM_FIRMWARE_INFO, usReferenceClock) + 1] << 8);
+	return *ref_freq ? 0 : -EINVAL;
 }
 
 uint32_t rdn_uvd_vcpu_bytes(uint32_t fw_size, uint32_t handles)

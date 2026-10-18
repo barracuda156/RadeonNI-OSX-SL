@@ -135,6 +135,8 @@ static uint32_t os_read(void *c, uint32_t off) { (void)c; return reg_read(off); 
 static void os_write(void *c, uint32_t off, uint32_t v) { (void)c; reg_write(off, v); }
 static void os_delay(void *c, uint32_t us) { (void)c; (void)us; }
 static uint64_t os_time(void *c) { static uint64_t t; (void)c; return t += 1; }
+static void *os_alloc(void *c, size_t n) { (void)c; return calloc(1, n); }
+static void os_free(void *c, void *p) { (void)c; free(p); }
 static void os_log(void *c, enum rdn_log_level l, const char *f, va_list ap)
 {
 	(void)c;
@@ -152,7 +154,7 @@ static void check(int ok, const char *what)
 		failures++;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	struct rdn_os os;
 	struct rdn_card card;
@@ -169,6 +171,33 @@ int main(void)
 	      fb == 849540 && vd == 14 && dd == 14, "dividers for 100/100 MHz: fb 849540, 14, 14");
 	check(rdn_uvd_calc_dividers(0, 10000, 10000, &fb, &vd, &dd) < 0, "no reference clock: error");
 
+	if (argc > 1) {
+		/* the PLL reference clock out of the real VBIOS (10 kHz units) */
+		FILE *f = fopen(argv[1], "rb");
+		static uint8_t bios[1 << 18];
+		struct rdn_os vos = { 0 };
+		struct rdn_card vcard;
+		uint32_t ref = 0;
+
+		vos.mmio_read32 = os_read;
+		vos.mmio_write32 = os_write;
+		vos.delay_us = os_delay;
+		vos.time_ms = os_time;
+		vos.log = os_log;
+		vos.alloc = os_alloc;
+		vos.free = os_free;
+		memset(&vcard, 0, sizeof(vcard));
+		if (!f || !fread(bios, 1, sizeof(bios), f)) {
+			printf("FAIL: cannot read %s\n", argv[1]);
+			return 2;
+		}
+		fclose(f);
+		check(!rdn_card_init(&vcard, &vos, bios), "VBIOS accepted");
+		check(!rdn_uvd_ref_clock(&vcard, &ref), "FirmwareInfo has a reference clock");
+		printf("reference clock %u0 kHz\n", (unsigned)ref);
+		check(ref == 2700, "27 MHz");
+	}
+
 	mem = calloc(1, APERTURE);
 	memset(&os, 0, sizeof(os));
 	os.mmio_read32 = os_read;
@@ -176,6 +205,8 @@ int main(void)
 	os.delay_us = os_delay;
 	os.time_ms = os_time;
 	os.log = os_log;
+	os.alloc = os_alloc;
+	os.free = os_free;
 	memset(&card, 0, sizeof(card));
 	card.os = &os;
 	memset(&accel, 0, sizeof(accel));

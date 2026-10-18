@@ -25,6 +25,7 @@
 
 extern "C" {
 #include "rdn_accel.h"
+#include "rdn_uvd.h"
 #include "rdn_gart.h"
 #include "rdn_mem.h"
 #include "rdn_pm.h"
@@ -91,6 +92,11 @@ public:
 	IOReturn power(UInt32 state, UInt32 what, UInt32 *sclk, UInt32 *mclk,
 		       UInt32 *temperature);
 	IOReturn regRead(UInt32 offset, UInt32 *value);
+	/* UVD, only with the personality's FW_UVD (hw/rdn_user.h). */
+	IOReturn uvdInit(UInt32 *status);
+	IOReturn uvdSubmit(UInt32 offset, UInt32 words, UInt32 *fence);
+	bool uvdFenceWait(UInt32 fence, UInt32 timeoutMs);
+	IOReturn uvdInfo(UInt32 *up, UInt32 *vcpuOffset, UInt32 *ringOffset);
 	IOMemoryDescriptor *apertureMemory(void);
 	UInt32 apertureBytes(void);
 	/* The shapes of the window server's surfaces, by surface ID. */
@@ -135,6 +141,10 @@ private:
 	UInt32 fHiddenOffset, fHiddenSize;
 	void *fPfp, *fMe;
 	bool fEngineUp;
+	/* UVD: set up by the first RDN_UC_UVD_INIT, never at start. */
+	struct rdn_uvd fUvd;
+	bool fUvdUp, fUvdFailed, fUvdClocksUp;
+	UInt32 fUvdLastSeq;
 	/* The power state the card was last put in (hw/rdn_pm.h). */
 	struct rdn_pm_state fPower;
 	bool fPowerKnown;
@@ -228,6 +238,10 @@ public:
 	IOReturn methodSurfaceList(struct rdn_user_surfaces *list, IOByteCount *size);
 	IOReturn methodSurfaceLocked(UInt32 *wid);
 	IOReturn methodRegRead(UInt32 offset, UInt32 *value);
+	IOReturn methodUvdInit(UInt32 *status);
+	IOReturn methodUvdSubmit(UInt32 offset, UInt32 words, UInt32 *fence);
+	IOReturn methodUvdFenceWait(UInt32 fence, UInt32 timeoutMs, UInt32 *reached);
+	IOReturn methodUvdInfo(UInt32 *up, UInt32 *vcpuOffset, UInt32 *ringOffset);
 	IOReturn methodAllocHidden(UInt32 size, UInt32 align, UInt32 *offset);
 	IOReturn methodHiddenInfo(UInt32 *offset, UInt32 *size);
 	IOReturn methodGartInfo(UInt32 *on, UInt32 *gpuStart, UInt32 *pages);

@@ -57,6 +57,9 @@ struct rdn_uvd {
  */
 uint32_t rdn_uvd_vcpu_bytes(uint32_t fw_size, uint32_t handles);
 
+/* The PLL's reference clock from the VBIOS (FirmwareInfo), 10 kHz units. */
+int rdn_uvd_ref_clock(struct rdn_card *card, uint32_t *ref_freq);
+
 /* The ring takes `ring_bytes` (a power of two) and 64 bytes after it. */
 #define RDN_UVD_RING_EXTRA	64
 
