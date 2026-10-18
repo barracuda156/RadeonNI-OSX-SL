@@ -7084,3 +7084,13 @@ shown a different CG_SPLL_STATUS (0x60c, 226 reads, expected 0x40114, got 0x6001
 differs after a replay, but setting it properly does not wake the VCPU either.
 QEMU question: no cause found for the resets; they occur with the card idle and with nothing running too
 (12:51, 14:31), so QEMU passthrough is not shown to be special.
+
+16:05 (x86 host, clean boot): kernel-side trace of radeon's bring-up (`scripts/uvd-ref-ftrace.sh`, function_graph over the
+radeon module plus PCI config accessors, copy/flush helpers and sleeps, minimal configuration, 343,608 lines,
+`traces/uvd-ref-ftrace.txt`, git-ignored). UVD came up (`UVD initialized successfully` at 32.84 s). From
+`uvd_v2_2_resume` (32.6447) to `uvd_v1_0_start` the CPU-side calls are: `memcpy_toio` of the firmware (67 us, write
+combining), `memset_io` of the rest (340 us), the IH/RLC bring-up (`evergreen_rlc_resume`, `evergreen_irq_init`
+with one PCI command word read-modify-write, i.e. bus master), then `uvd_v1_0_init` (177 ms: PLL waits and the
+26 ms `uvd_v1_0_start`). 58 `schedule_timeout` sleeps in the span and no cache flush, no `wbinvd`, no other
+PCI config access. Nothing there that our replays did not do; the order is uvd_v2_2_resume, IH/RLC, CP resume,
+then uvd_v1_0_init.
