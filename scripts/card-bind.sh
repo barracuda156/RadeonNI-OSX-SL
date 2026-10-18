@@ -82,7 +82,8 @@ none)
 radeon)
     unbind_all
     set_override ""
-    sudo modprobe radeon
+    # RADEON_PARAMS e.g. "dpm=0" (the module is loaded here, so it only applies to a fresh boot)
+    sudo modprobe radeon ${RADEON_PARAMS:-}
     probe
     status
     ;;
