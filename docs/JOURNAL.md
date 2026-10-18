@@ -6665,3 +6665,18 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   controls drawn, metadata dialog shown. LibreOfficeDev "Equinox" 5.2.0.alpha0 (D. Mencken,
   OSU mirror): Start Center drawn. Seen by readback only; no video played, no document opened.
 - ScummVM static build (dwatteau, 2026-06-27) copied and unpacked, not run. TenFourFox not fetched.
+
+## 2026-10-17: PowerVLC 2.1.0 video output on 10.5.9: default GL output black, `macosx_gl1` draws
+
+- Audio muted on the G5 (`osascript -e "set volume with output muted"`), runs use `--no-audio`.
+- `cs2_facu.mp4` (1080p H.264, from /srv/files/video) in PowerVLC: playback clock runs, CPU
+  115%, picture area black; the log shows nearly every picture "too late" (software H.264
+  1080p is beyond the G5), so that file proves nothing about GL.
+- `fma01.avi` (704x400 MPEG-4, 1 late picture only): the default `macosx` vout is **black**.
+  Its log: renderer `ATI Radeon HD 7570 | 4.6 (Compatibility Profile) Mesa 26.2.4`, "no OpenGL
+  hardware acceleration found" (VLC's own check), 16384 ALU fragment shader, colour mapping
+  shader, "PBO support enabled".
+- Same file with `--vout=macosx_gl1` (fixed pipeline, `GL texture units: 8`): **the picture
+  and the subtitle draw** (readback grab). So the card shows video; what fails is VLC's
+  GLSL (YUV to RGB shader) and/or PBO texture upload path through our bundle.
+- Not yet narrowed: shader vs PBO vs a texture format; no GL error log seen.
