@@ -364,6 +364,19 @@ static int ring_test(struct rdn_uvd *uvd)
 static void program_memory(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
+
+	if (uvd->flags & RDN_UVD_F_MINIMAL) {
+		/*
+		 * What a cold-start bisection of radeon's register stream left (docs/JOURNAL.md 2026-10-18): the
+		 * first memory window and the chip id; the firmware's address is below 4 GB (VRAM sits at 0).
+		 */
+		uint64_t at = uvd_addr(uvd, uvd->vcpu_gpu);
+
+		wr(card, UVD_VCPU_CACHE_OFFSET0, (uint32_t)(at >> 3));
+		wr(card, UVD_VCPU_CACHE_SIZE0, PAGE_UP(uvd->fw_size + 4) >> 3);
+		wr(card, UVD_VCPU_CHIP_ID_REG, RDN_UVD_CHIP_ID_TURKS);
+		return;
+	}
 	uint64_t gpu = uvd_addr(uvd, uvd->vcpu_gpu);
 	bool v1 = uvd->flags & RDN_UVD_F_V1_MEM;
 	/* uvd_v1_0_resume() starts 16 units (128 bytes) in and sizes the firmware without the +4 */
@@ -411,6 +424,25 @@ static int vcpu_start(struct rdn_uvd *uvd)
 	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_gpu);
 	uint32_t rb_bufsz, status = 0;
 	int i, j, r = 0;
+
+	if (uvd->flags & RDN_UVD_F_MINIMAL) {
+		/* clock gating off, VCPU clock on, VCPU out of reset */
+		wr(card, UVD_CGC_GATE, 0);
+		wr(card, UVD_VCPU_CNTL, 1 << 9);
+		wr(card, UVD_SOFT_RESET, 0);
+		mdelay(card, 10);
+		for (i = 0; i < 100; i++) {
+			status = rd(card, UVD_STATUS);
+			if (status & 2)
+				break;
+			mdelay(card, 10);
+		}
+		if (!(status & 2)) {
+			rdn_log(card->os, RDN_LOG_ERROR, "uvd not responding (status 0x%08x)", (unsigned)status);
+			return -EIO;
+		}
+		goto ring;
+	}
 
 	/* disable clock gating */
 	wr(card, UVD_CGC_GATE, 0);
@@ -487,6 +519,7 @@ static int vcpu_start(struct rdn_uvd *uvd)
 		return r;
 	}
 
+ring:
 	/* enable interrupt (the mask only; nothing is routed) */
 	wr_p(card, UVD_MASTINT_EN, 3 << 1, ~(3 << 1));
 	/* force RBC into idle state */
@@ -532,7 +565,7 @@ static void vcpu_stop(struct rdn_uvd *uvd)
 
 int rdn_uvd_wake(struct rdn_uvd *uvd)
 {
-	if (uvd->flags & RDN_UVD_F_NO_PLL)
+	if (uvd->flags & (RDN_UVD_F_NO_PLL | RDN_UVD_F_MINIMAL))
 		return 0;
 	if (uvd->flags & RDN_UVD_F_LOW_CLOCKS)
 		return rdn_uvd_set_clocks(uvd->accel->card, uvd->ref_freq, 10000, 10000);
@@ -574,6 +607,8 @@ static void uvd_dump(struct rdn_uvd *uvd, const char *why)
 
 int rdn_uvd_idle(struct rdn_uvd *uvd)
 {
+	if (uvd->flags & RDN_UVD_F_MINIMAL)
+		return 0;
 	return rdn_uvd_set_clocks(uvd->accel->card, uvd->ref_freq, 0, 0);
 }
 

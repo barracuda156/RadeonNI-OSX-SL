@@ -920,6 +920,13 @@ static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t fla
 	       (unsigned)rdn_rreg(card, UVD_STATUS));
 	if (getenv("RDN_APPLY"))
 		printf("uvdonly: applied %u writes of %s\n", apply_file(card, getenv("RDN_APPLY")), getenv("RDN_APPLY"));
+	if (getenv("RDN_MIN")) {
+		/* the 9 writes a cold-start bisection of radeon's stream left (journal 2026-10-18): VRAM at MC 0, RLC on */
+		rdn_wreg(card, 0x2024, 0x003f0000);	/* MC_VM_FB_LOCATION */
+		rdn_wreg(card, 0x2c04, 0);		/* HDP_NONSURFACE_BASE */
+		rdn_wreg(card, 0x3f00, 1);		/* RLC_CNTL: RLC_ENABLE */
+		flags |= RDN_UVD_F_MINIMAL;
+	}
 	accel.vram_base = (uint64_t)(rdn_rreg(card, 0x2024) & 0xffff) << 24;
 	if (getenv("RDN_KILL_VCPU")) {
 		/* hold the VCPU in reset and see that its status drops: only then is a later 2 a real boot */
