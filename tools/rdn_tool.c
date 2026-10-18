@@ -610,7 +610,11 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 			for (t = 0; t < 2000 && (rdn_rreg(card, (uint32_t)off) & val) != val; t++)
 				os_delay_us(NULL, 100);
 		} else {
-			(void)rdn_rreg(card, (uint32_t)off);
+			uint32_t got = rdn_rreg(card, (uint32_t)off);
+
+			if (getenv("RDN_REPLAY_CHECK") && got != (uint32_t)val)
+				printf("MISMATCH line %u reg 0x%05lx expected 0x%08lx got 0x%08x\n", n - 1, off,
+				       val & 0xffffffffu, (unsigned)got);
 		}
 		if (!getenv("RDN_REPLAY_TIMED"))
 		os_delay_us(NULL, off == 0xf680 || off == 0xe60 || off == 0xf4f4 || off == 0xf480 || off == 0xf660 ?
