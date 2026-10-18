@@ -6680,3 +6680,20 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   and the subtitle draw** (readback grab). So the card shows video; what fails is VLC's
   GLSL (YUV to RGB shader) and/or PBO texture upload path through our bundle.
 - Not yet narrowed: shader vs PBO vs a texture format; no GL error log seen.
+
+## 2026-10-17: PowerFox crash root cause (10.5.9, G5)
+
+- The "SIGBUS reading 0" is a deliberate `MOZ_CRASH`: `otool -tV` of XUL at the crash pc shows
+  a `fprintf` of an assertion followed by `stw r24,0(r24)`. Run from a shell, stderr says:
+  `Assertion failure: false (GFX: get_string_indexed is required!), GLContext.cpp:857`.
+- Cause: our Mesa context reports GL 4.6 (compatibility). Gecko then needs `glGetStringi`, which
+  it loads by symbol from Apple's OpenGL.framework; on 10.5 that exports no `glGetStringi`
+  (`nm -g` count 0), so the lookup fails and Gecko crashes. Apple's own GL on 10.5 reports 2.1
+  and never hits this path.
+- Check: `MESA_GL_VERSION_OVERRIDE=2.1 MESA_GLSL_VERSION_OVERRIDE=120 powerfox` no longer
+  asserts and stays up (no new crash report). No code changed; the default GL version string
+  is a "what programs see" setting, so it is left for the user to decide (options: report 2.1
+  to programs on 10.5, or export `glGetStringi` from the bundle).
+- After that, the window is white (also with `layers.acceleration.disabled`, so not only the GL
+  compositor), CPU near 0, `Can't find symbol 'EGLImageTargetTexture2DOES'` in stderr only.
+  Not yet explained; the same screen looked blank for PowerVLC's video (readback only).
