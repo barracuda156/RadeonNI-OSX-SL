@@ -569,6 +569,65 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 	}
 	printf("uvd: firmware %u bytes, reference clock %u0 kHz, flags 0x%x\n", (unsigned)fw_size,
 	       (unsigned)ref, (unsigned)flags);
+	/*
+	 * Experiment: RDN_REPLAY=file RDN_REPLAY_RANGES=lo-hi[,lo-hi...] (hex byte offsets): write the
+	 * "offset value" lines of the file that fall in a range, just before the UVD start. For finding
+	 * which of the registers Linux sets that ours does not matter to UVD.
+	 */
+	if (getenv("RDN_REPLAY")) {
+		FILE *rf = fopen(getenv("RDN_REPLAY"), "r");
+		const char *rg = getenv("RDN_REPLAY_RANGES");
+		char line[128];
+		unsigned n = 0;
+
+		while (rf && rg && fgets(line, sizeof(line), rf)) {
+			uint32_t off = (uint32_t)strtoul(line, NULL, 0), val;
+			char *sp = strchr(line, ' ');
+			const char *c = rg;
+			int hit = 0;
+
+			if (!sp)
+				continue;
+			val = (uint32_t)strtoul(sp, NULL, 0);
+			while (*c) {
+				char *e1, *e2;
+				uint32_t lo = (uint32_t)strtoul(c, &e1, 16), hi;
+
+				if (*e1 != '-')
+					break;
+				hi = (uint32_t)strtoul(e1 + 1, &e2, 16);
+				if (off >= lo && off <= hi)
+					hit = 1;
+				c = *e2 == ',' ? e2 + 1 : e2;
+			}
+			if (hit) {
+				rdn_wreg(card, off, val);
+				n++;
+			}
+		}
+		if (rf)
+			fclose(rf);
+		printf("replayed %u register writes\n", n);
+	}
+	/*
+	 * Experiment: RDN_RELOCATE=file writes Linux's VRAM relocation ("offset value" lines, in order)
+	 * and moves the VRAM base to MC address 0 as radeon does.
+	 */
+	if (getenv("RDN_RELOCATE")) {
+		FILE *rf = fopen(getenv("RDN_RELOCATE"), "r");
+		char line[128];
+
+		while (rf && fgets(line, sizeof(line), rf)) {
+			char *sp = strchr(line, ' ');
+
+			if (sp)
+				rdn_wreg(card, (uint32_t)strtoul(line, NULL, 0), (uint32_t)strtoul(sp, NULL, 0));
+		}
+		if (rf)
+			fclose(rf);
+		accel.vram_base = 0;
+		printf("relocated: FB_LOCATION %08x\n", (unsigned)rdn_rreg(card, 0x2024));
+	}
 	r = rdn_uvd_init(&uvd, &accel, ref, uvd_fw, fw_size, RDN_UVD_DEFAULT_HANDLES,
 			 36u << 20, (36u << 20) + 0x122000, 4096, flags);
 	printf("uvd init returned %d; UVD_STATUS %08x\n", r, (unsigned)rdn_rreg(card, UVD_STATUS));

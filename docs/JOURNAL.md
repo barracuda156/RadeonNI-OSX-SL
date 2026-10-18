@@ -6906,3 +6906,12 @@ accesses in `traces/uvd-ref-host-mmiotrace.log` (57 MB, not committed), no reset
 `ring test on 5 succeeded`, `UVD initialized successfully`. Its 92 UVD/PLL writes equal the QEMU-guest
 reference trace's in order and value, i.e. the same sequence our kext sends (journal 2026-10-17):
 the difference that keeps the VCPU silent on the G5 is not in the UVD/PLL write sequence itself.
+
+## 2026-10-18 (x86 host): rdn_tool uvd with replayed Linux register groups and VRAM relocation
+
+With the card posted on the server, `rdn_tool uvd` fails exactly as on the G5 (`UVD_STATUS` 0), so
+the bug is in our card setup, not G5-specific. Replaying, just before the UVD start, the registers
+Linux writes and we do not (GC/SQ, MC arbitration, low block, TLB/HDP, all "safe" groups) changed
+nothing. Also negative: `RDN_RELOCATE=build/uvd-ref/replay-mc.txt` (Linux's 41-write VRAM
+relocation to MC address 0, `MC_VM_FB_LOCATION` 0x003f0000, `vram_base` 0). Not yet replayed: SMC
+0x200-0x23c, VM L2/context 0x1400-0x157c, 0x30cc, 0x5bc0, 0x5e78, 0x5eb4. No host reset in these runs.
