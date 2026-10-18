@@ -6918,3 +6918,13 @@ relocation to MC address 0, `MC_VM_FB_LOCATION` 0x003f0000, `vram_base` 0). Not 
 
 Remaining groups replayed on the x86 host, all negative (`UVD_STATUS` 0): SMC 0x200-0x23c (14 writes),
 VM L2/context 0x1400-0x157c (10), 0x30cc/0x5bc0/0x5e78/0x5eb4 (4), VGA/MC FB 0x300-0x328 + 0x2024-0x203c (8).
+
+Memory check (x86 host): the firmware reads back from the aperture byte for byte (0 of 205080 bytes
+differ), the UVD registers read back as written (LMI_CTRL 0x302340, VCPU_CNTL 0x200, SOFT_RESET 0), and
+the UVD sequence in our trace is Linux's write for write (only the VCPU cache addresses differ). After
+the relocation test the card stays relocated (`MC_VM_FB_LOCATION` 0x003f0000, `vram_base` 0 from
+`rdn_cp.c`), so `RDN_VCPU_OFF=0x40000` (Linux's own placement, cache offset 0x8000) matches Linux
+exactly in address as well: still `UVD_STATUS` 0, as with 0x100000. CYPRESS_uvd.bin as firmware: same.
+Placement, firmware contents and the UVD registers are therefore ruled out; what is left is state
+outside the UVD block that Linux's `evergreen_startup` sets before `uvd_init` (RLC, interrupts, MC
+microcode, SMC) or a read of Linux's post-init UVD state with radeon bound.

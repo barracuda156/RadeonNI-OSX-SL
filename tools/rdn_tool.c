@@ -629,7 +629,8 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 		printf("relocated: FB_LOCATION %08x\n", (unsigned)rdn_rreg(card, 0x2024));
 	}
 	r = rdn_uvd_init(&uvd, &accel, ref, uvd_fw, fw_size, RDN_UVD_DEFAULT_HANDLES,
-			 36u << 20, (36u << 20) + 0x122000, 4096, flags);
+			 getenv("RDN_VCPU_OFF") ? (uint32_t)strtoul(getenv("RDN_VCPU_OFF"), NULL, 0) : 36u << 20,
+			 (36u << 20) + 0x122000, 4096, flags);
 	printf("uvd init returned %d; UVD_STATUS %08x\n", r, (unsigned)rdn_rreg(card, UVD_STATUS));
 	if (!r) {
 		uint32_t ib = (36u << 20) + 0x140000;

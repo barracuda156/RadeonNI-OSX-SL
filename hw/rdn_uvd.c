@@ -618,6 +618,19 @@ int rdn_uvd_init_mem(struct rdn_uvd *uvd, struct rdn_accel *accel,
 	for (i = 0; i < ring_bytes + RDN_UVD_RING_EXTRA; i++)
 		ring_cpu[i] = 0;
 	rdn_hdp_flush(accel);
+	{
+		/* read the firmware back from where the VCPU will fetch it */
+		uint32_t bad = 0, first = 0;
+
+		for (i = 0; i < fw_size; i++)
+			if (vcpu_cpu[i] != fw[i]) {
+				if (!bad)
+					first = i;
+				bad++;
+			}
+		rdn_log(card->os, RDN_LOG_INFO, "uvd: firmware readback: %u of %u bytes differ (first at %u)",
+			(unsigned)bad, (unsigned)fw_size, (unsigned)first);
+	}
 
 	{
 		/* evergreen_gpu_init(): the decoder's tiling follows the 3D engine's */
