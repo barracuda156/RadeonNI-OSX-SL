@@ -6846,3 +6846,24 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   written, powers off by itself). `run [FILE]` / `trace [FILE]` need the card on vfio-pci.
   radeon is bound on the host now and may not be unbound (it oopsed the kernel once), so the card
   can only go to vfio after a host reboot (radeon is blacklisted there).
+
+## 2026-10-18 (server): two unexplained host resets with the card in; the error masking is not enough
+
+- Both resets are "an uncorrected error caused a data fabric sync flood event" (kernel line at the next
+  boot: `x86/amd: Previous system reset reason [0x08000800]`), the same as 2026-10-05:
+  1. boot 12:51, ended 13:02:26 (uptime 11 min), card present, driverless, after a read-only status check;
+  2. boot 13:17:59, ended 13:18:58 (uptime 1 min), card present, `card-quiet.sh apply` and
+     `card-bind.sh vfio` done 30 s earlier, a QEMU launch that failed on a device option (no vfio
+     device was ever opened) a second before.
+  The boot in between (13:03:24-13:17:29) ran 14 min without trouble with `radeon` bound to the
+  card (UVD initialised) and the guest tests of `uvd-ref-qemu.sh novfio`; it ended with the user's
+  clean reboot. So: a reset with the card unmanaged (driverless or vfio-idle), none with `radeon`
+  managing it; three boots is thin evidence.
+- `card-quiet.sh apply` issued its writes (journal: DevCtl error bits off, AER UE/CE masks
+  0xffffffff on both functions, bridge SERR forwarding off), but the readback shows mask bits still
+  clear (UEMsk SDES, FCP, CmpltAbrt, RxOF; CEMsk RxErr, CorrIntErr, HeaderOF), so the masking is
+  incomplete, and the reset happened anyway. It evidently does not cover whatever raises this error
+  (probably detected in the root complex, not reported through the card's AER). Passing the card to
+  a QEMU guest therefore protects against nothing here.
+- Open: BIOS settings for sync flood on PCIe error (the user's board, MSI X370 KRAIT); whether the
+  resets depend on the card being unmanaged.
