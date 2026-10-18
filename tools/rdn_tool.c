@@ -631,6 +631,29 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 	return 0;
 }
 
+/* radeon's evergreen_rlc_resume(): UVD only boots with the RLC microcode loaded and running (journal 2026-10-18) */
+static void load_rlc(struct rdn_card *card)
+{
+	size_t rsz;
+	uint8_t *rlc = read_fw("BTC_rlc.bin", &rsz);
+	static const uint32_t zero_regs[] = { 0x3f0c, 0x3f10, 0x3f20, 0x3f1c, 0x3f14, 0x3f18, 0x3f44, 0x3f48 };
+	unsigned k;
+
+	if (rlc && rsz == 768 * 4) {
+		rdn_wreg(card, 0x3f00, 0);
+		for (k = 0; k < sizeof(zero_regs) / sizeof(zero_regs[0]); k++)
+			rdn_wreg(card, zero_regs[k], 0);
+		for (k = 0; k < 768; k++) {
+			rdn_wreg(card, 0x3f2c, k);
+			rdn_wreg(card, 0x3f30, (uint32_t)rlc[k * 4] << 24 | rlc[k * 4 + 1] << 16 |
+				 rlc[k * 4 + 2] << 8 | rlc[k * 4 + 3]);
+		}
+		rdn_wreg(card, 0x3f2c, 0);
+		rdn_wreg(card, 0x3f00, 1);
+		printf("RLC microcode loaded and started\n");
+	}
+}
+
 static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 {
 	static uint8_t uvd_fw[300000];
@@ -648,6 +671,8 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 		fprintf(stderr, "card is not posted; run 'post' first\n");
 		return -1;
 	}
+	if (getenv("RDN_RLC_FIRST"))
+		load_rlc(card);
 	/* radeon's order (ni_mc_load_microcode before the rest): the GDDR5 sequencer's microcode first */
 	if (!getenv("RDN_NO_MC")) {
 		size_t msz;
@@ -687,30 +712,8 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 	}
 	printf("uvd: firmware %u bytes, reference clock %u0 kHz, flags 0x%x\n", (unsigned)fw_size,
 	       (unsigned)ref, (unsigned)flags);
-	/*
-	 * radeon's evergreen_rlc_resume(): UVD only boots with the RLC microcode loaded and running
-	 * (journal 2026-10-18).
-	 */
-	{
-		size_t rsz;
-		uint8_t *rlc = read_fw("BTC_rlc.bin", &rsz);
-		static const uint32_t zero_regs[] = { 0x3f0c, 0x3f10, 0x3f20, 0x3f1c, 0x3f14, 0x3f18, 0x3f44, 0x3f48 };
-		unsigned k;
-
-		if (rlc && rsz == 768 * 4) {
-			rdn_wreg(card, 0x3f00, 0);
-			for (k = 0; k < sizeof(zero_regs) / sizeof(zero_regs[0]); k++)
-				rdn_wreg(card, zero_regs[k], 0);
-			for (k = 0; k < 768; k++) {
-				rdn_wreg(card, 0x3f2c, k);
-				rdn_wreg(card, 0x3f30, (uint32_t)rlc[k * 4] << 24 | rlc[k * 4 + 1] << 16 |
-					 rlc[k * 4 + 2] << 8 | rlc[k * 4 + 3]);
-			}
-			rdn_wreg(card, 0x3f2c, 0);
-			rdn_wreg(card, 0x3f00, 1);
-			printf("RLC microcode loaded and started\n");
-		}
-	}
+	if (!getenv("RDN_RLC_FIRST"))
+		load_rlc(card);
 	/*
 	 * Experiment: RDN_PM=1 moves the card from its slow boot state to the VBIOS's fastest PowerPlay state
 	 * (voltage, engine clock, memory clock), as radeon does before it brings UVD up (journal 2026-10-18).
@@ -901,10 +904,13 @@ static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t fla
 		fprintf(stderr, "no PLL reference clock in the VBIOS\n");
 		return -1;
 	}
+	if (getenv("RDN_RLC"))
+		load_rlc(card);
 	printf("uvdonly: vram base %llx, UVD_STATUS before %08x\n", (unsigned long long)accel.vram_base,
 	       (unsigned)rdn_rreg(card, UVD_STATUS));
 	if (getenv("RDN_APPLY"))
 		printf("uvdonly: applied %u writes of %s\n", apply_file(card, getenv("RDN_APPLY")), getenv("RDN_APPLY"));
+	accel.vram_base = (uint64_t)(rdn_rreg(card, 0x2024) & 0xffff) << 24;
 	if (getenv("RDN_KILL_VCPU")) {
 		/* hold the VCPU in reset and see that its status drops: only then is a later 2 a real boot */
 		uint32_t cg = rdn_rreg(card, UVD_CGC_GATE);
