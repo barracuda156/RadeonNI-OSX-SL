@@ -7060,3 +7060,9 @@ replayed writes, but the link did not retrain, and a retrain from the root port 
 replay differed from Linux in link speed too, but Linux itself does not need Gen2 for UVD.
 `tools/host/pcie_lc.py` reads the card's PCIe link-controller registers (LC_SPEED_CNTL 0xa4 reads
 0x13801321 after the replay, the same value radeon's trace ends with).
+
+15:51 (x86 host): `radeon` bound with `dpm=0 pcie_gen2=0 aspm=0 msi=0 no_wb=1 audio=0` (all read back from
+/sys/module/radeon/parameters; link 2.5 GT/s): `ring test on 5 succeeded`, `UVD initialized
+successfully`. UVD needs none of: power management, PCIe Gen2, ASPM setup, MSI, write-back of the
+scratch registers, the HDMI audio function. `scripts/radeon-try.sh "PARAMS"` does the reboot, the bind
+and the report (run a copy outside the sshfs mount: the remount during the script breaks it).
