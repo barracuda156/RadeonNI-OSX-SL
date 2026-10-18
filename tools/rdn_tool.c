@@ -217,6 +217,10 @@ static int check_identity(struct linux_card *lc)
 
 	snprintf(path, sizeof(path), "%s/driver", lc->sysfs);
 	n = readlink(path, buf, sizeof(buf) - 1);
+	if (n > 0 && getenv("RDN_ALLOW_DRIVER")) {
+		fprintf(stderr, "warning: a kernel driver owns the card; going on (RDN_ALLOW_DRIVER)\n");
+		n = 0;
+	}
 	if (n > 0) {
 		buf[n] = 0;
 		fprintf(stderr, "a kernel driver owns the card (%s); "
