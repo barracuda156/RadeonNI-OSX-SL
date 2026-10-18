@@ -7052,3 +7052,11 @@ So the complete register stream of radeon (including its AtomBIOS POST), the fir
 the PCI command register and radeon's timing do not wake the VCPU on a card that Linux wakes. The
 remaining differences are not visible to these tools: MMIO reads with side effects whose values we
 cannot force, whatever the CPU side does between accesses, and the unexplained single boot of 14:12.
+
+15:45 (x86 host, clean reboot): the Gen2 hypothesis is dead. `radeon` bound with `pcie_gen2=0 dpm=0`
+(module parameter reads 0, link stays at 2.5 GT/s, i.e. Gen1 like the G5) still logs `UVD initialized
+successfully`. The earlier replays also left the link at 2.5 GT/s (the card-side Gen2 strap is set by the
+replayed writes, but the link did not retrain, and a retrain from the root port did nothing), so the
+replay differed from Linux in link speed too, but Linux itself does not need Gen2 for UVD.
+`tools/host/pcie_lc.py` reads the card's PCIe link-controller registers (LC_SPEED_CNTL 0xa4 reads
+0x13801321 after the replay, the same value radeon's trace ends with).
