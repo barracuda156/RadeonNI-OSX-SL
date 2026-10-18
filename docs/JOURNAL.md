@@ -6724,3 +6724,17 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   (frames dropped as late); that is decoding speed.
 - Likely the same cause for other programs that resize or re-attach a GL view (PowerFox's white
   window is not yet explained).
+
+## 2026-10-17: PowerFox on 10.5.9: crash fixed for it by a per-program GL 2.1, window draws
+
+- Crash (sub-agent's analysis, confirmed): Gecko's `MOZ_CRASH` "get_string_indexed is required"
+  because Mesa reports GL 4.6 and Leopard's OpenGL does not export `glGetStringi`.
+- `gld/rdn_mesa.c` `want_version21()`: a program named in
+  `/Library/Application Support/RadeonNI/glversion21` (or `RDN_GL_VERSION21=1`) gets
+  `MESA_GL_VERSION_OVERRIDE=2.1` and GLSL 1.20 before Mesa makes its first context. Off for every
+  other program. The G5's file contains `powerfox`. Bundle only (relinked, installed; the previous
+  binary is `RadeonNIGLDriver.before-expect-fix-20261017`, which is from before both changes).
+- The blank white window was the surface-buffer bug of the entry above (PowerFox's view is
+  resized and re-attached): with both changes PowerFox 26.4.0 started with `open` shows its
+  welcome page (readback grab), 2 surfaces with a buffer in `rdnsurf`. Only the welcome page and
+  start page were looked at; no video or WebGL.

@@ -1044,11 +1044,60 @@ static void present_log(int rects, unsigned long sum, const uint8_t *rgb, int w,
 	fclose(f);
 }
 
+/*
+ * Programs written for Apple's OpenGL 2.1 that need more of it when Mesa
+ * says 4.6: Gecko (PowerFox) asks for glGetStringi from a 3.0 or newer
+ * context, and Leopard's OpenGL framework does not export it, so the
+ * browser stops itself at start. A program listed in the file
+ * RDN_GLVERSION_LIST (a line each: the program's name as the system has
+ * it; "-name" and "*" as for glthread) sees 2.1 and GLSL 1.20, which is
+ * what Apple's engine reports there. RDN_GL_VERSION21=1 or 0 in a
+ * program's environment decides for it. No other program is changed.
+ */
+#define RDN_GLVERSION_LIST "/Library/Application Support/RadeonNI/glversion21"
+
+static int want_version21(void)
+{
+	const char *env = getenv("RDN_GL_VERSION21");
+	const char *name = getprogname();
+	int named = -1, all = -1;
+	char line[256];
+	FILE *f;
+
+	if (env)
+		return strcmp(env, "0") != 0;
+	f = fopen(RDN_GLVERSION_LIST, "r");
+	if (!f)
+		return 0;
+	while (fgets(line, sizeof(line), f)) {
+		const char *who = line;
+		int on = 1;
+
+		line[strcspn(line, "\r\n")] = 0;
+		if (*who == '-') {
+			on = 0;
+			who++;
+		}
+		if (!strcmp(who, "*"))
+			all = on;
+		else if (name && !strcmp(who, name))
+			named = on;
+	}
+	fclose(f);
+	return named >= 0 ? named : all > 0;
+}
+
 static int mesa_ready(void)
 {
 	unsigned n;
 
 	if (usable < 0) {
+		/* Before Mesa makes its first context: it reads the override once. */
+		if (want_version21()) {
+			setenv("MESA_GL_VERSION_OVERRIDE", "2.1", 0);
+			setenv("MESA_GLSL_VERSION_OVERRIDE", "120", 0);
+			rdn_log("GL 2.1 and GLSL 1.20 for this program (%s)", RDN_GLVERSION_LIST);
+		}
 		/* A context to find out whether the card is there at all. */
 		OSMesaContext probe = OSMesaCreateContextExt(OSMESA_BGRA, 24, 8, 0, NULL);
 

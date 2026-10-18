@@ -101,6 +101,14 @@ been planned in detail.
   on the G5 profiles a program. Apple's VNC server is on on the G5
   (user's request, password `tiger`); it can hang in a log loop
   (`kickstart -restart -agent`).
+- Reported GL version per program (2026-10-17, journal): Mesa says GL 4.6 (compatibility). Gecko
+  (PowerFox) then wants `glGetStringi`, which Leopard's OpenGL framework does not export, and
+  stops itself at start. A program named in `/Library/Application Support/RadeonNI/glversion21`
+  (one line each, `-name`, `*`) or with `RDN_GL_VERSION21=1` sees 2.1 / GLSL 1.20; no other
+  program changes. On the G5 the file names `powerfox`. VLC only uses its PBO upload from GL 3.0.
+- A program that attaches the same surface again keeps its picture buffer in the kext
+  (`rdn_mesa_expect_surface`); before 2026-10-17 each re-attach erased it and the window server
+  drew nothing (`tools/guest/rdnsurf.c` lists the surfaces the kext has a buffer for).
 - glthread (2026-10-06, journal): Mesa's second-thread mode, with a small
   r600 patch (`mesa/patches/0003`). On for every program except the
   window server (user's decision, 2026-10-06). `RDN_GLTHREAD=0` or `=1`
