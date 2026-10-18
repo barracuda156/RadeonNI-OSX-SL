@@ -272,6 +272,12 @@ int rdn_uvd_set_clocks(struct rdn_card *card, uint32_t ref_freq,
 	return 0;
 }
 
+/* What the block is told for a place in video memory. */
+static uint64_t uvd_addr(const struct rdn_uvd *uvd, uint32_t offset)
+{
+	return (uvd->flags & RDN_UVD_F_ADDR_OFFSET) ? offset : uvd->accel->vram_base + offset;
+}
+
 /* ---- the ring ---------------------------------------------------------- */
 
 static void ring_put(struct rdn_uvd *uvd, uint32_t value)
@@ -344,7 +350,7 @@ static int ring_test(struct rdn_uvd *uvd)
 static void program_memory(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
-	uint64_t gpu = uvd->accel->vram_base + uvd->vcpu_offset;
+	uint64_t gpu = uvd_addr(uvd, uvd->vcpu_offset);
 	bool v1 = uvd->flags & RDN_UVD_F_V1_MEM;
 	/* uvd_v1_0_resume() starts 16 units (128 bytes) in and sizes the firmware without the +4 */
 	uint64_t addr = (gpu >> 3) + (v1 ? 16 : 0);
@@ -389,7 +395,7 @@ static int vcpu_start(struct rdn_uvd *uvd)
 {
 	struct rdn_card *card = uvd->accel->card;
 	uint32_t lmi_swap_cntl = 0, mp_swap_cntl = 0;
-	uint64_t ring_gpu = uvd->accel->vram_base + uvd->ring_offset;
+	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_offset);
 	uint32_t rb_bufsz, status = 0;
 	int i, j, r = 0;
 
@@ -535,6 +541,13 @@ static void uvd_dump(struct rdn_uvd *uvd, const char *why)
 		{ "CG_UPLL_FUNC_CNTL", CG_UPLL_FUNC_CNTL },
 		{ "CG_UPLL_FUNC_CNTL_2", CG_UPLL_FUNC_CNTL_2 },
 		{ "CG_UPLL_FUNC_CNTL_3", CG_UPLL_FUNC_CNTL_3 },
+		/* the memory controller: does the block's access fault? */
+		{ "MC_VM_FB_LOCATION", 0x2024 }, { "MC_VM_SYSTEM_APERTURE_LOW", 0x2034 },
+		{ "MC_VM_SYSTEM_APERTURE_HIGH", 0x2038 }, { "MC_VM_SYSTEM_APERTURE_DEFAULT", 0x203C },
+		{ "VM_L2_CNTL", 0x1400 }, { "VM_L2_STATUS", 0x140C }, { "VM_CONTEXT0_CNTL", 0x1410 },
+		{ "VM_CONTEXT1_PROTECTION_FAULT_STATUS", 0x14DC },
+		{ "VM_CONTEXT1_PROTECTION_FAULT_ADDR", 0x14FC },
+		{ "VM_CONTEXT0_PROTECTION_FAULT_DEFAULT_ADDR", 0x1518 },
 	};
 	unsigned i;
 
@@ -664,7 +677,7 @@ void rdn_uvd_fini(struct rdn_uvd *uvd)
 int rdn_uvd_ib_submit(struct rdn_uvd *uvd, uint64_t gpu_addr, uint32_t words,
 		      uint32_t *seq)
 {
-	uint64_t ring_gpu = uvd->accel->vram_base + uvd->ring_offset;
+	uint64_t ring_gpu = uvd_addr(uvd, uvd->ring_offset);
 	uint32_t fence_low = (uint32_t)(ring_gpu + uvd->ring_words * 4);
 	int r;
 

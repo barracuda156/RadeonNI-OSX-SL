@@ -42,6 +42,7 @@
 #define RDN_UVD_F_LOW_CLOCKS	(1 << 3)	/* 100/100 MHz, as for pre-RV740 */
 #define RDN_UVD_F_NO_PLL	(1 << 4)	/* leave the PLL in bypass: the VCPU runs on the base clock */
 #define RDN_UVD_F_KEEP_CLOCKS	(1 << 5)	/* on failure leave the clocks up (registers can then be read) */
+#define RDN_UVD_F_ADDR_OFFSET	(1 << 6)	/* give the block video memory offsets, not GPU addresses (bits 32-39 zero) */
 
 struct rdn_uvd {
 	struct rdn_accel *accel;
