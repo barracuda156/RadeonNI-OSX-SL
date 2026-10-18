@@ -7002,3 +7002,10 @@ memory controller block: MC arbitration/timing 0x2700-0x2bff (about 45 registers
 final values of those differing registers (display and FB location excluded) for a replay by value on
 a fresh post. Linux's MC values come from loading the MC microcode (TURKS_mc) and its own mc_program;
 ours come from the VBIOS POST alone.
+
+15:12 (x86 host): replaying Linux's final MC arbitration/timing values (0x2700-0x2bff, 0x2c04-0x2c0c,
+`replay-final.txt`) on a fresh post reset the host within seconds (group 1 of 6; the rest never ran). Do
+not write those registers by value into a live card. Linux does not poke them either: they are the
+result of `ni_mc_load_microcode` (GDDR5: MC_SEQ_MISC0 says GDDR5, MC_SEQ_SUP_CNTL run bit 0 after the
+VBIOS POST) plus `evergreen_mc_program`. `rdn_tool uvd` did not load the MC microcode (the kext does),
+so `do_uvd` now calls `rdn_mc_load_microcode` first (`RDN_NO_MC=1` skips it). Not yet run.

@@ -51,6 +51,7 @@
 #include "../hw/rdn_pattern.h"
 #include "../hw/rdn_reg.h"
 #include "../hw/rdn_uvd.h"
+#include "../hw/rdn_mc.h"
 #include "../hw/rdn_uvd_reg.h"
 
 #define MMIO_SIZE	0x20000
@@ -538,6 +539,15 @@ static int do_uvd(struct linux_card *lc, struct rdn_card *card, uint32_t flags)
 	if (!rdn_card_posted(card)) {
 		fprintf(stderr, "card is not posted; run 'post' first\n");
 		return -1;
+	}
+	/* radeon's order (ni_mc_load_microcode before the rest): the GDDR5 sequencer's microcode first */
+	if (!getenv("RDN_NO_MC")) {
+		size_t msz;
+		uint8_t *mc = read_fw("TURKS_mc.bin", &msz);
+
+		if (mc)
+			printf("MC microcode: %d (0 loaded and trained, 1 not needed)\n",
+			       rdn_mc_load_microcode(card, mc, msz));
 	}
 	fw.pfp = read_fw("TURKS_pfp.bin", &fw.pfp_size);
 	fw.me = read_fw("TURKS_me.bin", &fw.me_size);
