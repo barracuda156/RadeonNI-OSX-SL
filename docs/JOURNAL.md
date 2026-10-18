@@ -6915,3 +6915,6 @@ Linux writes and we do not (GC/SQ, MC arbitration, low block, TLB/HDP, all "safe
 nothing. Also negative: `RDN_RELOCATE=build/uvd-ref/replay-mc.txt` (Linux's 41-write VRAM
 relocation to MC address 0, `MC_VM_FB_LOCATION` 0x003f0000, `vram_base` 0). Not yet replayed: SMC
 0x200-0x23c, VM L2/context 0x1400-0x157c, 0x30cc, 0x5bc0, 0x5e78, 0x5eb4. No host reset in these runs.
+
+Remaining groups replayed on the x86 host, all negative (`UVD_STATUS` 0): SMC 0x200-0x23c (14 writes),
+VM L2/context 0x1400-0x157c (10), 0x30cc/0x5bc0/0x5e78/0x5eb4 (4), VGA/MC FB 0x300-0x328 + 0x2024-0x203c (8).
