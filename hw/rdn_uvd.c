@@ -351,18 +351,18 @@ static void program_memory(struct rdn_uvd *uvd)
 	uint32_t size = PAGE_UP(v1 ? uvd->fw_size : uvd->fw_size + 4) >> 3;
 
 	/* the VCPU memory controller bits 0-27 */
-	wr(card, UVD_VCPU_CACHE_OFFSET0, (uint32_t)addr);
-	wr(card, UVD_VCPU_CACHE_SIZE0, size);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_OFFSET0 : UVD_VCPU_CACHE_OFFSET0, (uint32_t)addr);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_SIZE0 : UVD_VCPU_CACHE_SIZE0, size);
 
 	addr += size;
 	size = RDN_UVD_HEAP_SIZE >> 3;
-	wr(card, UVD_VCPU_CACHE_OFFSET1, (uint32_t)addr);
-	wr(card, UVD_VCPU_CACHE_SIZE1, size);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_OFFSET1 : UVD_VCPU_CACHE_OFFSET1, (uint32_t)addr);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_SIZE1 : UVD_VCPU_CACHE_SIZE1, size);
 
 	addr += size;
 	size = (RDN_UVD_STACK_SIZE + RDN_UVD_SESSION_SIZE * uvd->handles) >> 3;
-	wr(card, UVD_VCPU_CACHE_OFFSET2, (uint32_t)addr);
-	wr(card, UVD_VCPU_CACHE_SIZE2, size);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_OFFSET2 : UVD_VCPU_CACHE_OFFSET2, (uint32_t)addr);
+	wr(card, v1 ? UVD_R6XX_VCPU_CACHE_SIZE2 : UVD_VCPU_CACHE_SIZE2, size);
 
 	/* bits 28-31 */
 	addr = (gpu >> 28) & 0xF;
@@ -598,21 +598,22 @@ int rdn_uvd_init(struct rdn_uvd *uvd, struct rdn_accel *accel,
 		rdn_vram_write32(accel, ring_offset + i, 0);
 	rdn_hdp_flush(accel);
 
-	if (flags & RDN_UVD_F_UDEC_CONFIG) {
+	{
 		/* evergreen_gpu_init(): the decoder's tiling follows the 3D engine's */
 		uint32_t cfg = rd(card, 0x98f8);	/* GB_ADDR_CONFIG */
 
-		wr(card, 0xEF4C, cfg);	/* UVD_UDEC_ADDR_CONFIG */
-		wr(card, 0xEF50, cfg);	/* UVD_UDEC_DB_ADDR_CONFIG */
-		wr(card, 0xEF54, cfg);	/* UVD_UDEC_DBW_ADDR_CONFIG */
+		wr(card, UVD_UDEC_ADDR_CONFIG, cfg);
+		wr(card, UVD_UDEC_DB_ADDR_CONFIG, cfg);
+		wr(card, UVD_UDEC_DBW_ADDR_CONFIG, cfg);
 	}
-	if (flags & RDN_UVD_F_MEM_FIRST)
+	/* uvd_v2_2_resume() runs before uvd_v1_0_init() raises the clocks */
+	if (!(flags & RDN_UVD_F_PLL_FIRST))
 		program_memory(uvd);
 	/* raise clocks while booting up the VCPU */
 	r = rdn_uvd_wake(uvd);
 	if (r)
 		goto done;
-	if (!(flags & RDN_UVD_F_MEM_FIRST))
+	if (flags & RDN_UVD_F_PLL_FIRST)
 		program_memory(uvd);
 	r = vcpu_start(uvd);
 	if (r) {

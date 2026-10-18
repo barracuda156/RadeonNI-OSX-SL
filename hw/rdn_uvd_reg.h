@@ -89,12 +89,29 @@
 #define UVD_MPC_SET_MUX					0xf5f4
 #define UVD_MPC_SET_ALU					0xf5f8
 #define UVD_VCPU_CHIP_ID_REG				0xf4d4
-#define UVD_VCPU_CACHE_OFFSET0				0xf608
-#define UVD_VCPU_CACHE_SIZE0				0xf60c
-#define UVD_VCPU_CACHE_OFFSET1				0xf610
-#define UVD_VCPU_CACHE_SIZE1				0xf614
-#define UVD_VCPU_CACHE_OFFSET2				0xf618
-#define UVD_VCPU_CACHE_SIZE2				0xf61c
+/*
+ * Where the VCPU's three memory windows are set: Evergreen's layout
+ * (rv770d.h, which uvd_v2_2.c uses; a Linux trace of this card writes
+ * 0xf4d8-0xf4ec), and the R6xx one (r600d.h, uvd_v1_0.c) kept for the
+ * RDN_UVD_F_V1_MEM variant. Using the second on this chip left the VCPU
+ * without a firmware address: it never answered.
+ */
+#define UVD_VCPU_CACHE_OFFSET0				0xf4d8
+#define UVD_VCPU_CACHE_SIZE0				0xf4dc
+#define UVD_VCPU_CACHE_OFFSET1				0xf4e0
+#define UVD_VCPU_CACHE_SIZE1				0xf4e4
+#define UVD_VCPU_CACHE_OFFSET2				0xf4e8
+#define UVD_VCPU_CACHE_SIZE2				0xf4ec
+#define UVD_R6XX_VCPU_CACHE_OFFSET0			0xf608
+#define UVD_R6XX_VCPU_CACHE_SIZE0			0xf60c
+#define UVD_R6XX_VCPU_CACHE_OFFSET1			0xf610
+#define UVD_R6XX_VCPU_CACHE_SIZE1			0xf614
+#define UVD_R6XX_VCPU_CACHE_OFFSET2			0xf618
+#define UVD_R6XX_VCPU_CACHE_SIZE2			0xf61c
+/* The decoder's tiling follows the 3D engine's (evergreen_gpu_init()). */
+#define UVD_UDEC_ADDR_CONFIG				0xef4c
+#define UVD_UDEC_DB_ADDR_CONFIG				0xef50
+#define UVD_UDEC_DBW_ADDR_CONFIG			0xef54
 #define UVD_VCPU_CNTL					0xf660
 #define UVD_SOFT_RESET					0xf680
 #define		RBC_SOFT_RESET					(1<<0)

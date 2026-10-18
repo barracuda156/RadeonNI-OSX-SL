@@ -73,6 +73,8 @@ static void run_packets(uint32_t offset, uint32_t words)
 
 static void reg_write(uint32_t reg, uint32_t val)
 {
+	if (getenv("UVD_MODEL_TRACE"))
+		fprintf(stderr, "W mmio %05x %08x 4\n", (unsigned)reg, (unsigned)val);
 	writes++;
 	regs[reg / 4] = val;
 	switch (reg) {

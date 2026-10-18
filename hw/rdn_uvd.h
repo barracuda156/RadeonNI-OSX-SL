@@ -36,8 +36,8 @@
  * Start-up variants for finding out what a card needs (rdn_uvd_init's
  * `flags`); 0 is Linux's sequence for Turks.
  */
-#define RDN_UVD_F_UDEC_CONFIG	(1 << 0)	/* UVD_UDEC_*_ADDR_CONFIG from GB_ADDR_CONFIG, as evergreen_gpu_init() */
-#define RDN_UVD_F_MEM_FIRST	(1 << 1)	/* program the memory window before the clocks go up */
+#define RDN_UVD_F_UDEC_CONFIG	(1 << 0)	/* (unused: the tiling registers are always written) */
+#define RDN_UVD_F_PLL_FIRST	(1 << 1)	/* raise the clocks before programming the memory window (Linux does it the other way) */
 #define RDN_UVD_F_V1_MEM	(1 << 2)	/* uvd_v1_0_resume()'s window: +16, UVD_FW_START */
 #define RDN_UVD_F_LOW_CLOCKS	(1 << 3)	/* 100/100 MHz, as for pre-RV740 */
 #define RDN_UVD_F_NO_PLL	(1 << 4)	/* leave the PLL in bypass: the VCPU runs on the base clock */
