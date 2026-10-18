@@ -583,6 +583,23 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 			continue;
 		if (dt && getenv("RDN_REPLAY_TIMED"))
 			os_delay_us(NULL, (uint32_t)dt);
+		if (kind == 'T') {
+			/* a 64-bit write into the GART table in VRAM (RDN_GART_AT, default 0x162000) */
+			static volatile uint8_t *tap;
+
+			if (!tap) {
+				struct stat tst;
+				int tfd = sysfs_open(lc, "resource0", O_RDWR);
+
+				if (tfd < 0 || fstat(tfd, &tst))
+					return -1;
+				tap = mmap(NULL, tst.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, tfd, 0);
+				if (tap == MAP_FAILED)
+					return -1;
+			}
+			*(volatile uint64_t *)(tap + 0x162000 + off) = val;
+			continue;
+		}
 		if (kind == 'W') {
 			rdn_wreg(card, (uint32_t)off, (uint32_t)val);
 			w++;
