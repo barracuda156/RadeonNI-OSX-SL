@@ -6,11 +6,12 @@
 #   scripts/resume-after-reboot.sh SESSION_ID
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 1
+export PATH=/home/kouta/.local/bin:$PATH    # systemd has no login PATH
 sid=${1:?session id}
 note=$root/build/reboot-note.txt
 [ -f "$note" ] || exit 0
 [ -e build/resume-done ] && [ build/resume-done -nt "$note" ] && exit 0
 sleep 60    # let the network and the machine settle after a reset
 touch build/resume-done
-exec claude --resume "$sid" -p "The server just rebooted (this prompt was sent by scripts/resume-after-reboot.sh). Run scripts/host-reboot-note.sh check, read build/reboot-note.txt, and continue from there under the host safety rules in CLAUDE.md." \
+exec /home/kouta/.local/bin/claude --resume "$sid" -p "The server just rebooted (this prompt was sent by scripts/resume-after-reboot.sh). Run scripts/host-reboot-note.sh check, read build/reboot-note.txt, and continue from there under the host safety rules in CLAUDE.md." \
     >> build/resume-after-reboot.log 2>&1
