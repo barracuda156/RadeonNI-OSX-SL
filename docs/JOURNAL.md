@@ -6867,3 +6867,24 @@ Done unattended on the G5 (input driven with `tools/guest/input.c`; the user asl
   a QEMU guest therefore protects against nothing here.
 - Open: BIOS settings for sync flood on PCIe error (the user's board, MSI X370 KRAIT); whether the
   resets depend on the card being unmanaged.
+
+### Correction (same day, after the user's remark): the resets are not about being unmanaged
+
+Boots of 2026-10-18 on the server, card in (`journalctl --list-boots`, `last -x`):
+
+| Boot | Length | Card state | End |
+|---|---|---|---|
+| 12:44 | 6 min | driverless | clean |
+| 12:51 | 11 min | driverless, idle (only read-only status commands) | **reset** (sync flood) |
+| 13:03 | 14 min | `radeon` bound from 13:05, UVD up, QEMU `novfio` tests | clean (user's reboot) |
+| 13:17:59 | 1 min | `card-quiet.sh apply`, `card-bind.sh vfio`, two failed QEMU launches | **reset** (sync flood) |
+| 13:19:42 | 26 min | driverless, idle, only reads (lspci -vv, dmidecode, ...) | clean (reboot for the kernel options) |
+| 13:47 | running | driverless, `processor.max_cstate=1 pcie_aspm=off`, one-shot GRUB entry | |
+
+Neither "unmanaged" nor "idle for N minutes" explains it: 26 idle driverless minutes were fine, and the
+user reports about 30 minutes in an earlier session without my tests. The reset at 12:51 has no
+discernible trigger; the one at 13:17 came 30 s after the first and only vfio-pci bind of this
+session. `radeon` bound once and stayed up (UVD initialised). Hypotheses not tested: vfio-pci puts an
+idle device into D3hot through runtime PM (`vfio-pci disable_idle_d3=1`), a random fault of this card
+or slot. The one-shot GRUB entry (`/etc/grub.d/40_custom`, backups `*.before-cstate-test`) stays
+available; the default entry is unchanged.
