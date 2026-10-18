@@ -582,10 +582,17 @@ static int do_replay(struct linux_card *lc, struct rdn_card *card, const char *f
 		if (kind == 'W') {
 			rdn_wreg(card, (uint32_t)off, (uint32_t)val);
 			w++;
+		} else if (off == 0x718 || off == 0x71c || off == 0x79c || off == 0xf6bc) {
+			/* a status the driver waited for: wait for the bits it saw (up to 200 ms) */
+			unsigned t;
+
+			for (t = 0; t < 2000 && (rdn_rreg(card, (uint32_t)off) & val) != val; t++)
+				os_delay_us(NULL, 100);
 		} else {
 			(void)rdn_rreg(card, (uint32_t)off);
 		}
-		os_delay_us(NULL, (off >= 0x600 && off < 0x900) || off == 0x5480 ? 2000 : 20);
+		os_delay_us(NULL, off == 0xf680 || off == 0xe60 || off == 0xf4f4 || off == 0xf480 || off == 0xf660 ?
+			    10000 : (off >= 0x600 && off < 0x900) || off == 0x5480 ? 2000 : 20);
 	}
 	fclose(f);
 	printf("replayed %u writes of lines %u-%u; UVD_STATUS %08x\n", w, from, n,
