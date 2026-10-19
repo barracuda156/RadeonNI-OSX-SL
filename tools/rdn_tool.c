@@ -925,8 +925,6 @@ static int do_uvdonly(struct linux_card *lc, struct rdn_card *card, uint32_t fla
 		rdn_wreg(card, 0x2024, 0x003f0000);	/* MC_VM_FB_LOCATION */
 		rdn_wreg(card, 0x2c04, 0);		/* HDP_NONSURFACE_BASE */
 		os_delay_us(NULL, 200000);
-		rdn_wreg(card, 0x3f00, 1);		/* RLC_CNTL: RLC_ENABLE */
-		os_delay_us(NULL, atoi(getenv("RDN_MIN_RLC_US") ? getenv("RDN_MIN_RLC_US") : "300000"));
 		flags |= RDN_UVD_F_MINIMAL;
 	}
 	accel.vram_base = (uint64_t)(rdn_rreg(card, 0x2024) & 0xffff) << 24;

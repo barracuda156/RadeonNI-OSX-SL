@@ -426,6 +426,9 @@ static int vcpu_start(struct rdn_uvd *uvd)
 	int i, j, r = 0;
 
 	if (uvd->flags & RDN_UVD_F_MINIMAL) {
+		/* the RLC (evergreen_rlc_start() writes RLC_ENABLE) after the memory window, and time to come up */
+		wr(card, 0x3f00, 1);
+		mdelay(card, 300);
 		/* clock gating off, VCPU clock on, VCPU out of reset */
 		wr(card, UVD_CGC_GATE, 0);
 		wr(card, UVD_VCPU_CNTL, 1 << 9);
