@@ -1170,11 +1170,11 @@ int main(int argc, char **argv)
 	} else if (!strcmp(cmd, "uvdonly")) {
 		if (trace)
 			lc.trace = fopen(trace, "w");
+		ret = do_uvdonly(&lc, &card, optind + 1 < argc ? (uint32_t)strtoul(argv[optind + 1], NULL, 0) : 0);
 		if (lc.trace) {
 			fclose(lc.trace);
 			lc.trace = NULL;
 		}
-		ret = do_uvdonly(&lc, &card, optind + 1 < argc ? (uint32_t)strtoul(argv[optind + 1], NULL, 0) : 0);
 	} else if (!strcmp(cmd, "uvd")) {
 		if (trace) {
 			lc.trace = fopen(trace, "w");
