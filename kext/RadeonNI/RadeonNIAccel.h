@@ -84,17 +84,19 @@ public:
 			  UInt32 *offset);
 	IOReturn gartUnbind(UInt32 offset, void *owner);
 	void gartUnbindAll(void *owner);
+	void releaseClientMemory(const UInt32 *offsets, UInt32 count, void *owner);
 	void freeVram(UInt32 offset);
 	IOReturn submit(UInt32 offset, UInt32 words, UInt32 *fence);
 	bool fenceWait(UInt32 fence, UInt32 timeoutMs);
 	void syncForCPU(void);
+	IOReturn waitForCPU(void);
 	IOReturn power(UInt32 state, UInt32 what, UInt32 *sclk, UInt32 *mclk,
 		       UInt32 *temperature);
 	IOReturn regRead(UInt32 offset, UInt32 *value);
 	IOMemoryDescriptor *apertureMemory(void);
 	UInt32 apertureBytes(void);
 	/* The shapes of the window server's surfaces, by surface ID. */
-	void setSurfaceRegion(UInt32 wid, const IOAccelDeviceRegion *rgn,
+	bool setSurfaceRegion(UInt32 wid, const IOAccelDeviceRegion *rgn,
 			      UInt32 rects);
 	bool getSurfaceRegion(UInt32 wid, struct rdn_user_region *region);
 	void forgetSurface(UInt32 wid);
@@ -106,11 +108,14 @@ public:
 	 */
 	bool surfaceGate(void) { return fSurfaceGate; }
 	bool isGLSurface(UInt32 wid);
-	void setSurfaceBuffer(UInt32 wid, UInt32 offset, UInt32 rowBytes,
-			      UInt32 width, UInt32 height);
+	bool setSurfaceBacking(UInt32 wid, task_t task, const struct rdn_user_backing *backing);
+	bool getSurfaceBacking(UInt32 wid, task_t task, struct rdn_user_backing *backing);
+	bool setSurfaceBuffer(UInt32 wid, UInt32 offset, UInt32 rowBytes,
+			      UInt32 width, UInt32 height, void *owner);
 	bool getSurfaceBuffer(UInt32 wid, UInt32 *offset, UInt32 *rowBytes,
 			      UInt32 *width, UInt32 *height);
 	void listSurfaces(struct rdn_user_surfaces *list);
+	void querySurface(UInt32 wid, struct rdn_user_surface_info *info);
 	/* Put a surface's picture on the screen, inside its shape. */
 	IOReturn flushSurface(UInt32 wid);
 	/*
@@ -141,8 +146,7 @@ private:
 	/* Hand out surface clients (RadeonNISurface.h)? */
 	bool fSurfaces;
 	bool fSurfaceGate;
-	enum { kMaxSurfaces = 32 };
-	struct {
+	struct SurfaceRecord {
 		UInt32 wid;
 		bool used;
 		/* announced by its owner (RDN_UC_SURFACE_BUFFER) */
@@ -150,7 +154,13 @@ private:
 		struct rdn_user_region region;
 		/* The surface's picture, if its owner has said where it is. */
 		UInt32 bufOffset, bufRowBytes, bufWidth, bufHeight;
-	} fShapes[kMaxSurfaces];
+		void *owner;
+		task_t backingTask;
+		struct rdn_user_backing backing;
+	};
+	SurfaceRecord *fShapes;
+	UInt32 fShapeCapacity;
+	int surfaceSlot(UInt32 wid, bool create);
 	UInt32 fReadLocked;
 	/* flushSurface(): the last copy's fence, and its rectangles. */
 	bool fBlitPending;
@@ -225,6 +235,8 @@ public:
 				     IOByteCount *size);
 	IOReturn methodSurfaceBuffer(UInt32 wid, UInt32 offset, UInt32 rowBytes,
 				     UInt32 width, UInt32 height);
+	IOReturn methodSurfaceBacking(UInt32 wid, struct rdn_user_backing *backing, IOByteCount *size);
+	IOReturn methodSurfaceQuery(UInt32 wid, struct rdn_user_surface_info *info, IOByteCount *size);
 	IOReturn methodSurfaceList(struct rdn_user_surfaces *list, IOByteCount *size);
 	IOReturn methodSurfaceLocked(UInt32 *wid);
 	IOReturn methodRegRead(UInt32 offset, UInt32 *value);
