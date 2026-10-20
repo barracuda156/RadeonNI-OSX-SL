@@ -119,6 +119,8 @@ enum {
 	 * RDN_UC_SCREEN_FILL.
 	 */
 	RDN_UC_SCREEN_COPY,
+	/* scalars in: address low/high words, byte length; out: GART offset. */
+	RDN_UC_GART_BIND64,
 	RDN_UC_METHOD_COUNT
 };
 
